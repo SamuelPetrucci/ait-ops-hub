@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
 import { requireOwner } from "@/lib/auth";
+import { byContentRecency } from "@/lib/content";
 import { formatWhen, nestedString } from "@/lib/format";
 
 export const metadata = { title: "Approvals" };
@@ -30,9 +31,9 @@ export default async function ApprovalsPage() {
       .order("created_at", { ascending: false }),
     supabase
       .from("content_queue")
-      .select("id, title, status, caption, video_url, script_json, source_urls, platforms, created_at")
+      .select("id, title, status, caption, video_url, script_json, source_urls, platforms, created_at, updated_at, posted_at, scheduled_at, content_id")
       .eq("status", "in_review")
-      .order("created_at", { ascending: false }),
+      .order("updated_at", { ascending: false }),
   ]);
   for (const result of [approvals, outreach, content]) {
     if (result.error) throw new Error(result.error.message);
@@ -81,12 +82,12 @@ export default async function ApprovalsPage() {
         ),
       };
     }),
-    ...(content.data ?? []).map((row) => ({
+    ...[...(content.data ?? [])].sort(byContentRecency).map((row) => ({
       key: `content-${row.id}`,
       kind: "Content in review",
       title: row.title || "Untitled",
-      createdAt: row.created_at,
-      body: <ContentPreview row={row} />,
+      createdAt: row.updated_at || row.created_at,
+      body: <ContentPreview id={row.id} row={row} />,
       form: <ReviewForm action={reviewContent} id={row.id} />,
     })),
   ].sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
@@ -151,8 +152,10 @@ function DecisionButtons() {
 }
 
 function ContentPreview({
+  id,
   row,
 }: {
+  id: string;
   row: {
     caption: string | null;
     video_url: string | null;
@@ -170,7 +173,13 @@ function ContentPreview({
   const caption = row.caption || script.caption_draft;
   return (
     <div className="flex flex-col gap-3 text-sm">
-      <p className="text-muted-foreground">{(row.platforms || []).join(" · ") || "No platforms"}</p>
+      <p className="text-muted-foreground">
+        {(row.platforms || []).join(" · ") || "No platforms"}
+        {" · "}
+        <Link href={`/content/${id}`} className="text-primary hover:underline">
+          Open the script
+        </Link>
+      </p>
       {row.video_url ? (
         <video src={row.video_url} controls className="max-h-80 w-full rounded-lg bg-black" />
       ) : (

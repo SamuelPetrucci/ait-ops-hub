@@ -26,8 +26,9 @@ export default async function HubLayout({ children }: { children: ReactNode }) {
     <Shell
       email={user.email || "Samuel"}
       badges={{
-        approvals: (approvals.count || 0) + (outreach.count || 0) + (content.count || 0),
+        approvals: (approvals.count || 0) + (outreach.count || 0),
         followUps: followUps.count || 0,
+        content: content.count || 0,
       }}
     >
       {children}

@@ -25,6 +25,8 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Hub reads and writes, plus agent/n8n jobs |
 | `SUPABASE_SECRET_KEY` | Server only. Alternate to the service role key |
 | `OPS_PASSWORD` | Server only. Shared password that opens the hub |
+| `BUFFER_API_KEY` | Server only. Personal key from Buffer → Settings → API |
+| `BUFFER_ORGANIZATION_ID` | Server only. Defaults to the AI Transformation org |
 
 ## What the hub does
 
@@ -37,6 +39,10 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 Approval changes status, `approved_by`, `review_notes`, and `reviewed_at`. It does not send email or publish a post. Agents and n8n do that after they see an approved row.
 
 Dragging a content card to Posted only changes status. It does not call a social API.
+
+## Buffer analytics
+
+The Content desk pulls views, reactions, comments, and engagement from Buffer. Create a personal API key in Buffer → Settings → API, set `BUFFER_API_KEY` in `.env` / Vercel, then click **Refresh Buffer** on Overview or Content. Metrics refresh about once a day on Buffer’s side. The hub matches posts to `content_queue` by the `VD-…` / `SC-…` code in the video URL.
 
 ## How agents read directives and write activities
 

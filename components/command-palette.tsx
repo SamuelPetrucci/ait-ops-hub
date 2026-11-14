@@ -19,14 +19,15 @@ import { companyOf } from "@/lib/format";
 
 type Hit = { href: string; label: string; hint: string };
 
-export function CommandPalette() {
+export function CommandPalette({ variant = "button" }: { variant?: "button" | "bar" }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const [hits, setHits] = useState<{ companies: Hit[]; deals: Hit[]; agents: Hit[] }>({
+  const [hits, setHits] = useState<{ companies: Hit[]; deals: Hit[]; agents: Hit[]; content: Hit[] }>({
     companies: [],
     deals: [],
     agents: [],
+    content: [],
   });
   const [, startTransition] = useTransition();
 
@@ -62,6 +63,11 @@ export function CommandPalette() {
             label: row.name,
             hint: row.role || row.status,
           })),
+          content: result.content.map((row) => ({
+            href: `/content/${row.id}`,
+            label: row.title || row.content_id || "Untitled",
+            hint: [row.content_id, String(row.status).replaceAll("_", " ")].filter(Boolean).join(" · "),
+          })),
         });
       });
     }, 180);
@@ -75,31 +81,54 @@ export function CommandPalette() {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex">
-        <Search />
-        Search
-        <span className="text-xs text-muted-foreground">Ctrl K</span>
-      </Button>
-      <Button variant="outline" size="icon" onClick={() => setOpen(true)} className="sm:hidden" aria-label="Search">
-        <Search />
-      </Button>
-      <CommandDialog open={open} onOpenChange={setOpen} title="Jump" description="Companies, deals, and agents">
+      {variant === "bar" ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex h-10 w-full items-center gap-2 rounded-xl border border-white/10 bg-black/35 px-3 text-left text-sm text-white/55 outline-none hover:border-white/20 hover:bg-black/45 hover:text-white/80 focus-visible:ring-2 focus-visible:ring-amber-300/60"
+        >
+          <Search className="size-4 shrink-0" />
+          <span className="flex-1 truncate">Search companies, content, deals, agents…</span>
+          <kbd className="hidden rounded-md border border-white/15 px-1.5 py-0.5 text-[10px] text-white/45 sm:inline">
+            Ctrl K
+          </kbd>
+        </button>
+      ) : (
+        <>
+          <Button variant="outline" size="sm" onClick={() => setOpen(true)} className="hidden sm:inline-flex">
+            <Search />
+            Search
+            <span className="text-xs text-muted-foreground">Ctrl K</span>
+          </Button>
+          <Button variant="outline" size="icon" onClick={() => setOpen(true)} className="sm:hidden" aria-label="Search">
+            <Search />
+          </Button>
+        </>
+      )}
+      <CommandDialog open={open} onOpenChange={setOpen} title="Jump" description="Companies, content, deals, and agents">
         <Command>
           <CommandInput
-            placeholder="Jump to a company, deal, or agent"
+            placeholder="Jump to a company, piece, deal, or agent"
             value={query}
             onValueChange={setQuery}
           />
           <CommandList>
             <CommandEmpty>No matches.</CommandEmpty>
-            <CommandGroup heading="Go to">
-              {NAV.map((item) => (
-                <CommandItem key={item.href} value={item.label} onSelect={() => go(item.href)}>
-                  {item.label}
-                </CommandItem>
-              ))}
-            </CommandGroup>
+            {["Hub", "Business", "Content", "Operations"].map((heading) => {
+              const items = NAV.filter((item) => (("group" in item && item.group) || "Hub") === heading);
+              if (items.length === 0) return null;
+              return (
+                <CommandGroup key={heading} heading={heading === "Hub" ? "Go to" : heading}>
+                  {items.map((item) => (
+                    <CommandItem key={item.href} value={`${heading} ${item.label}`} onSelect={() => go(item.href)}>
+                      {item.label}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              );
+            })}
             <HitGroup heading="Companies" hits={hits.companies} onSelect={go} />
+            <HitGroup heading="Content" hits={hits.content} onSelect={go} />
             <HitGroup heading="Deals" hits={hits.deals} onSelect={go} />
             <HitGroup heading="Agents" hits={hits.agents} onSelect={go} />
           </CommandList>

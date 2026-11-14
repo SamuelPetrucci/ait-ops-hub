@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { completeFollowUp, snoozeFollowUp } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { SiteLink } from "@/components/site-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { requireOwner } from "@/lib/auth";
@@ -18,7 +19,7 @@ export default async function FollowUpsPage({
   const today = nyToday();
   const { data, error } = await supabase
     .from("prospects")
-    .select("id, company, next_follow_up_due, stage, deal_owner")
+    .select("id, company, website, next_follow_up_due, stage, deal_owner")
     .not("next_follow_up_due", "is", null)
     .order("next_follow_up_due", { ascending: true })
     .limit(300);
@@ -49,9 +50,12 @@ export default async function FollowUpsPage({
               {items.length === 0 ? <p className="text-sm text-muted-foreground">None.</p> : null}
               {items.map((row) => (
                 <div key={row.id} className="rounded-lg bg-muted/40 p-2 text-sm">
-                  <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
-                    {row.company}
-                  </Link>
+                  <div className="flex flex-wrap items-baseline gap-x-2">
+                    <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
+                      {row.company}
+                    </Link>
+                    <SiteLink website={row.website} />
+                  </div>
                   <p className="text-xs text-muted-foreground">
                     {formatWhen(row.next_follow_up_due)} · {row.deal_owner || "Unassigned"}
                   </p>

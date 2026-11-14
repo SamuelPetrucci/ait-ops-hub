@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { deleteView, saveView } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { SiteLink } from "@/components/site-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -39,7 +40,7 @@ export default async function CompaniesPage({
   let query = supabase
     .from("prospects")
     .select(
-      "id, company, contact, city, region, industry, stage, lead_score, deal_owner, next_follow_up_due, proposed_service",
+      "id, company, contact, website, city, region, industry, stage, lead_score, deal_owner, next_follow_up_due, proposed_service",
       { count: "exact" },
     )
     .order("company", { ascending: true });
@@ -153,6 +154,7 @@ export default async function CompaniesPage({
                 <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
                   {row.company}
                 </Link>
+                <SiteLink website={row.website} className="block w-fit text-xs text-primary hover:underline" />
                 <p className="text-xs text-muted-foreground">{row.contact || row.proposed_service}</p>
               </TableCell>
               <TableCell>{row.industry || "—"}</TableCell>

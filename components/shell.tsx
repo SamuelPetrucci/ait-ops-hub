@@ -3,13 +3,41 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
 import { signOut } from "@/app/actions/mutations";
 import { CommandPalette } from "@/components/command-palette";
 import { RealtimeRefresh } from "@/components/realtime";
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { NAV } from "@/lib/constants";
+
+const GROUPS = [
+  {
+    name: "Business",
+    label: "text-amber-300",
+    rail: "border-amber-400/50",
+    active: "bg-amber-400 text-amber-950",
+    idle: "text-amber-50/80 hover:bg-amber-400/15 hover:text-amber-50",
+  },
+  {
+    name: "Content",
+    label: "text-cyan-300",
+    rail: "border-cyan-400/50",
+    active: "bg-cyan-400 text-cyan-950",
+    idle: "text-cyan-50/80 hover:bg-cyan-400/15 hover:text-cyan-50",
+  },
+  {
+    name: "Operations",
+    label: "text-violet-300",
+    rail: "border-violet-400/50",
+    active: "bg-violet-400 text-violet-950",
+    idle: "text-violet-50/80 hover:bg-violet-400/15 hover:text-violet-50",
+  },
+] as const;
 
 export function Shell({
   email,
@@ -17,82 +45,86 @@ export function Shell({
   children,
 }: {
   email: string;
-  badges: { approvals: number; followUps: number };
+  badges: { approvals: number; followUps: number; content: number };
   children: ReactNode;
 }) {
-  return (
-    <div className="min-h-screen bg-background md:grid md:grid-cols-[220px_1fr]">
-      <RealtimeRefresh />
-      <aside className="hidden border-r border-border md:flex md:flex-col">
-        <Brand />
-        <Nav badges={badges} />
-        <Account email={email} />
-      </aside>
-      <div className="min-w-0">
-        <header className="sticky top-0 z-30 flex items-center gap-2 border-b border-border bg-background/90 px-3 py-2 backdrop-blur md:px-6">
-          <Sheet>
-            <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="md:hidden" aria-label="Open menu">
-                <Menu />
-              </Button>
-            </SheetTrigger>
-            <SheetContent side="left" className="w-72">
-              <SheetHeader>
-                <SheetTitle>AIT Ops Hub</SheetTitle>
-              </SheetHeader>
-              <Nav badges={badges} />
-              <Account email={email} />
-            </SheetContent>
-          </Sheet>
-          <p className="text-sm font-medium md:hidden">AIT Ops Hub</p>
-          <div className="ml-auto">
-            <CommandPalette />
-          </div>
-        </header>
-        <main className="mx-auto flex w-full max-w-7xl flex-col gap-6 px-3 py-5 md:px-6">{children}</main>
-      </div>
-    </div>
-  );
-}
-
-function Brand() {
-  return (
-    <div className="px-4 py-4">
-      <p className="text-xs tracking-[0.18em] text-primary uppercase">AI Transformation</p>
-      <p className="text-base font-medium">Ops Hub</p>
-    </div>
-  );
-}
-
-function Nav({ badges }: { badges: { approvals: number; followUps: number } }) {
   const pathname = usePathname();
+
   return (
-    <nav className="flex flex-1 flex-col gap-0.5 px-2">
-      {NAV.map((item) => {
-        const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-        const count = item.href === "/approvals" ? badges.approvals : item.href === "/follow-ups" ? badges.followUps : 0;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`flex items-center justify-between rounded-lg px-2.5 py-1.5 text-sm ${active ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"}`}
-          >
-            {item.label}
-            {count > 0 ? <span className="text-xs tabular-nums text-primary">{count}</span> : null}
+    <div className="min-h-screen bg-background">
+      <RealtimeRefresh />
+      <header className="sticky top-0 z-30 border-b border-border bg-[#12151c]/95 backdrop-blur">
+        <div className="flex items-center gap-3 px-3 py-3 md:px-5">
+          <Link href="/" className="shrink-0">
+            <p className="text-[11px] tracking-[0.16em] text-amber-300 uppercase">AI Transformation</p>
+            <p className="text-sm font-medium leading-none">Ops Hub</p>
           </Link>
-        );
-      })}
-    </nav>
+          <div className="mx-auto w-full max-w-xl">
+            <CommandPalette variant="bar" />
+          </div>
+          <Account email={email} />
+        </div>
+        <nav className="flex gap-2 overflow-x-auto px-3 pb-3 md:px-5">
+          <Link
+            href="/"
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-sm ${pathname === "/" ? "bg-white text-zinc-950" : "text-white/70 hover:bg-white/10 hover:text-white"}`}
+          >
+            Overview
+          </Link>
+          {GROUPS.map((group) => {
+            const items = NAV.filter((item) => "group" in item && item.group === group.name);
+            return (
+              <div
+                key={group.name}
+                className={`flex shrink-0 items-center gap-1 rounded-xl border-l-2 ${group.rail} bg-white/4 px-1.5 py-1`}
+              >
+                <span className={`px-1.5 text-[10px] tracking-[0.14em] uppercase ${group.label}`}>{group.name}</span>
+                {items.map((item) => {
+                  const active = pathname.startsWith(item.href);
+                  const count = badgeFor(item.href, badges);
+                  return (
+                    <Link
+                      key={item.href}
+                      href={item.href}
+                      className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-sm ${active ? group.active : group.idle}`}
+                    >
+                      {item.label}
+                      {count > 0 ? <span className="text-xs tabular-nums opacity-80">{count}</span> : null}
+                    </Link>
+                  );
+                })}
+              </div>
+            );
+          })}
+        </nav>
+      </header>
+      <main className="flex w-full flex-col gap-6 px-3 py-5 md:px-5">{children}</main>
+    </div>
   );
 }
 
 function Account({ email }: { email: string }) {
   return (
-    <form action={signOut} className="mt-auto border-t border-border p-3">
-      <p className="truncate text-xs text-muted-foreground">{email}</p>
-      <Button type="submit" variant="ghost" size="sm" className="mt-1 px-0">
-        Sign out
-      </Button>
-    </form>
+    <DropdownMenu>
+      <DropdownMenuTrigger className="inline-flex h-9 max-w-36 shrink-0 items-center rounded-lg px-2.5 text-sm text-white/70 outline-none hover:bg-white/10 hover:text-white focus-visible:ring-2">
+        <span className="truncate">{email}</span>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuLabel className="max-w-52 truncate">{email}</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <form action={signOut}>
+          <button type="submit" className="w-full rounded-md px-1.5 py-1 text-left text-sm hover:bg-muted">
+            Sign out
+          </button>
+        </form>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+}
+
+function badgeFor(href: string, badges: { approvals: number; followUps: number; content: number }) {
+  if (href === "/approvals") return badges.approvals;
+  if (href === "/follow-ups") return badges.followUps;
+  if (href === "/content") return badges.content;
+  return 0;
 }

@@ -59,6 +59,24 @@ export function companyOf(row: { prospects?: unknown }) {
   return nestedString(row.prospects, "company") || "Unknown company";
 }
 
+export function siteUrl(value: string | null | undefined) {
+  const raw = (value || "").trim();
+  if (!raw) return null;
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+export function siteLabel(value: string | null | undefined) {
+  const href = siteUrl(value);
+  if (!href) return "";
+  return new URL(href).hostname.replace(/^www\./, "");
+}
+
 export function asText(value: unknown) {
   return typeof value === "string" ? value : "";
 }

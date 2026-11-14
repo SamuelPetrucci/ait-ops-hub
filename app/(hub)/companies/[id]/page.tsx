@@ -9,6 +9,7 @@ import {
   scheduleFollowUp,
 } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { SiteLink } from "@/components/site-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -16,7 +17,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { requireOwner } from "@/lib/auth";
 import { DEAL_COLUMNS } from "@/lib/constants";
-import { formatWhen, labelize, money } from "@/lib/format";
+import { formatWhen, labelize, money, siteUrl } from "@/lib/format";
 
 export const metadata = { title: "Company" };
 
@@ -126,6 +127,13 @@ export default async function CompanyPage({
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {siteUrl(company.website) ? (
+            <Button variant="outline" size="sm" asChild>
+              <a href={siteUrl(company.website) || undefined} target="_blank" rel="noreferrer">
+                Visit site
+              </a>
+            </Button>
+          ) : null}
           <Badge>{labelize(company.stage)}</Badge>
           <Badge variant="outline">Follow-up {formatWhen(company.next_follow_up_due)}</Badge>
         </div>
@@ -136,7 +144,10 @@ export default async function CompanyPage({
           <Card>
             <CardHeader>
               <CardTitle>Profile</CardTitle>
-              <CardDescription>{company.website || "No website"}</CardDescription>
+              <CardDescription>
+                <SiteLink website={company.website} className="text-sm text-primary hover:underline" />
+                {siteUrl(company.website) ? null : "No website"}
+              </CardDescription>
             </CardHeader>
             <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
               <Field label="Contact string" value={company.contact} />

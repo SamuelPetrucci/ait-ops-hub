@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { logActivity } from "@/lib/activity";
 import { requireOwner } from "@/lib/auth";
 import { DEAL_TO_PROSPECT } from "@/lib/constants";
+import { byContentRecency } from "@/lib/content";
 import { addDays, nyToday } from "@/lib/format";
 import { SESSION_COOKIE } from "@/lib/session";
 
@@ -543,15 +544,24 @@ export async function searchHub(query: string) {
   deals = q ? deals.ilike("service", `%${q}%`) : deals.order("updated_at", { ascending: false });
   let agents = supabase.from("agents").select("id, name, role, status").limit(8);
   agents = q ? agents.ilike("name", `%${q}%`) : agents.order("name");
+  let content = supabase
+    .from("content_queue")
+    .select("id, title, content_id, status, posted_at, updated_at, created_at, scheduled_at")
+    .limit(24);
+  content = q
+    ? content.or(`title.ilike.%${q}%,content_id.ilike.%${q}%`)
+    : content.order("updated_at", { ascending: false });
 
-  const [companyRes, dealRes, agentRes] = await Promise.all([companies, deals, agents]);
+  const [companyRes, dealRes, agentRes, contentRes] = await Promise.all([companies, deals, agents, content]);
   if (companyRes.error) throw new Error(companyRes.error.message);
   if (dealRes.error) throw new Error(dealRes.error.message);
   if (agentRes.error) throw new Error(agentRes.error.message);
+  if (contentRes.error) throw new Error(contentRes.error.message);
 
   return {
     companies: companyRes.data ?? [],
     deals: dealRes.data ?? [],
     agents: agentRes.data ?? [],
+    content: [...(contentRes.data ?? [])].sort(byContentRecency).slice(0, 8),
   };
 }

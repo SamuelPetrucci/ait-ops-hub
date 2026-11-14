@@ -2,7 +2,7 @@ import { DealBoard } from "@/components/boards";
 import { Stat } from "@/components/stat";
 import { requireOwner } from "@/lib/auth";
 import { OPEN_DEAL_STATUSES } from "@/lib/constants";
-import { companyOf, money } from "@/lib/format";
+import { companyOf, money, nestedString } from "@/lib/format";
 
 export const metadata = { title: "Pipeline" };
 
@@ -10,7 +10,7 @@ export default async function PipelinePage() {
   const { supabase } = await requireOwner();
   const { data, error } = await supabase
     .from("deals")
-    .select("id, service, value, probability, expected_close, status, prospect_id, prospects(company)")
+    .select("id, service, value, probability, expected_close, status, prospect_id, prospects(company, website)")
     .order("updated_at", { ascending: false });
   if (error) throw new Error(error.message);
   const rows = data ?? [];
@@ -41,6 +41,7 @@ export default async function PipelinePage() {
           title: companyOf(row),
           meta: `${row.service} · ${money(row.value)} · ${row.probability}%`,
           href: `/companies/${row.prospect_id}`,
+          site: nestedString(row.prospects, "website"),
         }))}
       />
     </div>

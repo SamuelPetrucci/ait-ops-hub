@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { recordExpense, recordPayment } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { SiteLink } from "@/components/site-link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireOwner } from "@/lib/auth";
 import { GOAL_DATE, REVENUE_GOAL, REVENUE_STRETCH } from "@/lib/constants";
-import { companyOf, daysUntil, formatWhen, money, nyToday } from "@/lib/format";
+import { companyOf, daysUntil, formatWhen, money, nestedString, nyToday } from "@/lib/format";
 
 export const metadata = { title: "Revenue" };
 
@@ -21,7 +22,7 @@ export default async function RevenuePage({
   const [deals, payments, packages, expenses, niches] = await Promise.all([
     supabase
       .from("deals")
-      .select("id, service, value, status, prospect_id, prospects(company)")
+      .select("id, service, value, status, prospect_id, prospects(company, website)")
       .order("updated_at", { ascending: false }),
     supabase.from("payments").select("id, deal_id, amount, date, method, status, notes").order("date", { ascending: false }),
     supabase.from("service_packages").select("name, status, monthly_price, price_range, deliverables, mrr").order("monthly_price"),
@@ -73,9 +74,12 @@ export default async function RevenuePage({
           <CardContent className="flex flex-col gap-2 text-sm">
             {won.length === 0 ? <p className="text-muted-foreground">No won deals yet.</p> : null}
             {won.map((deal) => (
-              <Link key={deal.id} href={`/companies/${deal.prospect_id}`} className="hover:underline">
-                {companyOf(deal)} · {deal.service} · {money(deal.value)}
-              </Link>
+              <div key={deal.id} className="flex flex-wrap items-baseline gap-x-2">
+                <Link href={`/companies/${deal.prospect_id}`} className="hover:underline">
+                  {companyOf(deal)} · {deal.service} · {money(deal.value)}
+                </Link>
+                <SiteLink website={nestedString(deal.prospects, "website")} />
+              </div>
             ))}
           </CardContent>
         </Card>

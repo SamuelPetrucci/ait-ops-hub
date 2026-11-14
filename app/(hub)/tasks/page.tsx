@@ -19,7 +19,7 @@ export default async function TasksPage({
   const [{ data, error }, { data: agents }] = await Promise.all([
     supabase
       .from("tasks")
-      .select("id, title, assigned_agent, status, priority, due_date, prospect_id, content_id, prospects(company)")
+      .select("id, title, assigned_agent, status, priority, due_date, prospect_id, content_id, prospects(company, website)")
       .order("due_date", { ascending: true, nullsFirst: false }),
     supabase.from("agents").select("name").order("name"),
   ]);
@@ -59,7 +59,8 @@ export default async function TasksPage({
             column: task.status,
             title: task.title,
             meta: [task.assigned_agent, task.priority, formatWhen(task.due_date), company].filter(Boolean).join(" · "),
-            href: task.prospect_id ? `/companies/${task.prospect_id}` : task.content_id ? "/content" : undefined,
+            href: task.prospect_id ? `/companies/${task.prospect_id}` : task.content_id ? `/content/${task.content_id}` : undefined,
+            site: nestedString(task.prospects, "website"),
           };
         })}
       />

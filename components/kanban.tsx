@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
+import { SiteLink } from "@/components/site-link";
 import {
   DndContext,
   PointerSensor,
@@ -19,6 +20,7 @@ export type KanbanItem = {
   title: string;
   meta?: string;
   href?: string;
+  site?: string;
 };
 
 export function Kanban({
@@ -107,7 +109,12 @@ function Card({ item }: { item: KanbanItem }) {
       ) : (
         <p className="font-medium">{item.title}</p>
       )}
-      {item.meta ? <p className="mt-1 text-xs text-muted-foreground">{item.meta}</p> : null}
+      {item.site ? (
+        <span className="mt-1 block" onPointerDown={(event) => event.stopPropagation()}>
+          <SiteLink website={item.site} />
+        </span>
+      ) : null}
+      {item.meta ? <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">{item.meta}</p> : null}
     </article>
   );
 }
