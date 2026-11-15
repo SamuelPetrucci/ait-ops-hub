@@ -57,6 +57,10 @@ Sales Map → **Discover area** pulls local businesses from OpenStreetMap via Ov
 
 Apply `supabase/migrations/20261115090000_prospect_discovery.sql` in the Supabase SQL editor so `osm_id`, `company_size_bucket`, and `discovery_source` exist. Import still works without it, but dedupe by OSM id is weaker until the migration is applied.
 
+## Day sales plan
+
+On Sales Map, **Plan my day** (or **Plan from selection**) builds a field route from Groton, CT: nearest-neighbor order with visit-window clustering (contractors early, restaurants afternoon). Each stop includes opener, pain points to discuss, card-drop line, discovery-call ask (Calendly), Google Maps export, copyable summary, and save-to-`sales_routes`. Scripts live in `lib/sales-tactics.ts`; planner logic in `lib/day-plan.ts`.
+
 ## How agents read directives and write activities
 
 Agents and n8n use the service role on the server. That role bypasses RLS. Never put it in a browser, a `NEXT_PUBLIC_` variable, or a client bundle.

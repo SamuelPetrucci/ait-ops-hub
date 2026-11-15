@@ -16,6 +16,7 @@ import {
   formatVisitWindow,
   OFFER,
 } from "@/lib/sales-tactics";
+import { buildDaySalesPlan, type DaySalesPlan } from "@/lib/day-plan";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
 import { AreaDiscovery } from "@/components/area-discovery";
@@ -78,6 +79,9 @@ export function ProspectMapView({
   const [routeName, setRouteName] = useState("");
   const [plannerMessage, setPlannerMessage] = useState<string | null>(null);
   const [geocodeMessage, setGeocodeMessage] = useState<string | null>(null);
+  const [dayPlan, setDayPlan] = useState<DaySalesPlan | null>(null);
+  const [maxDayStops, setMaxDayStops] = useState(8);
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const handleFilterChange = (partial: Partial<ProspectMapFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
@@ -163,24 +167,84 @@ export function ProspectMapView({
   }, [selectedProspects]);
 
   const googleMapsUrl = useMemo(() => {
-    if (!plannedRoute || plannedRoute.ordered.length === 0) return null;
-    return buildGoogleMapsUrl(plannedRoute.ordered, HOME_LAT, HOME_LNG);
-  }, [plannedRoute]);
+    const stops = dayPlan?.stops ?? plannedRoute?.ordered;
+    if (!stops || stops.length === 0) return null;
+    return buildGoogleMapsUrl(stops, HOME_LAT, HOME_LNG);
+  }, [dayPlan, plannedRoute]);
+
+  const handleBuildDayPlan = (fromSelection: boolean) => {
+    const pool = fromSelection && selectedProspects.length > 0 ? selectedProspects : filteredProspects;
+    if (pool.length === 0) {
+      setPlannerMessage("No mapped prospects in the current filter. Discover or clear filters first.");
+      setDayPlan(null);
+      return;
+    }
+
+    const plan = buildDaySalesPlan(
+      pool.map((p) => ({
+        id: p.id,
+        company: p.company,
+        lat: p.lat,
+        lng: p.lng,
+        city: p.city,
+        industry: p.industry,
+        lead_score: p.lead_score,
+        miles_from_home: p.miles_from_home,
+        visit_opener: p.visit_opener,
+        primary_opportunity: p.primary_opportunity,
+        stage: p.stage,
+      })),
+      {
+        startLat: HOME_LAT,
+        startLng: HOME_LNG,
+        startAddress: "Groton, CT",
+        maxStops: maxDayStops,
+        respectVisitWindows: true,
+      }
+    );
+
+    setDayPlan(plan);
+    setSelectedIds(new Set(plan.stops.map((s) => s.id)));
+    setRouteName(plan.title);
+    setPlannerMessage(
+      `Day plan ready: ${plan.stopCount} stops · converse, card drop, pain points, book calls.`
+    );
+  };
+
+  const handleCopyDayPlan = async () => {
+    if (!dayPlan) return;
+    try {
+      await navigator.clipboard.writeText(dayPlan.summaryText);
+      setCopyStatus("Copied day plan to clipboard");
+      setTimeout(() => setCopyStatus(null), 2500);
+    } catch {
+      setCopyStatus("Could not copy — select the summary text manually");
+    }
+  };
 
   const handleSaveRoute = async () => {
-    if (!plannedRoute || !routeName.trim()) {
-      setPlannerMessage("Enter a route name");
+    const stops = dayPlan?.stops ?? plannedRoute?.ordered;
+    const totalKm = dayPlan?.totalKm ?? plannedRoute?.totalKm;
+    if (!stops || stops.length === 0 || totalKm == null || !routeName.trim()) {
+      setPlannerMessage("Build a day plan (or select stops) and enter a route name");
       return;
     }
     setPlannerMessage(null);
     startTransition(async () => {
       const result = await saveRoute(
         routeName.trim(),
-        plannedRoute.ordered,
+        stops.map((s) => ({
+          id: s.id,
+          company: s.company,
+          lat: s.lat,
+          lng: s.lng,
+          city: s.city,
+          industry: s.industry,
+        })),
         "Groton, CT",
         HOME_LAT,
         HOME_LNG,
-        plannedRoute.totalKm
+        totalKm
       );
       if ("error" in result) {
         setPlannerMessage(result.error);
@@ -343,30 +407,111 @@ export function ProspectMapView({
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle className="text-base sm:text-lg">Route Planner</CardTitle>
+            <CardTitle className="text-base sm:text-lg">Day sales plan</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Select up to 10 prospects (click pins or checkboxes below) to plan a visit route.
-              They&apos;ll be ordered by nearest-neighbor from Groton, CT.
+              Build a stop order for the day: short conversations, card drops, pain-point questions,
+              and discovery-call asks. Auto-picks from the current map filter, or uses your selection.
             </p>
 
-            {selectedProspects.length > 0 && plannedRoute && (
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className="mb-1 block text-xs text-muted-foreground">Max stops</label>
+                <select
+                  value={maxDayStops}
+                  onChange={(e) => setMaxDayStops(Number(e.target.value))}
+                  className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
+                >
+                  {[5, 6, 7, 8, 9, 10].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button size="sm" onClick={() => handleBuildDayPlan(false)} disabled={filteredProspects.length === 0}>
+                Plan my day
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleBuildDayPlan(true)}
+                disabled={selectedProspects.length === 0}
+              >
+                Plan from selection
+              </Button>
+            </div>
+
+            <ul className="grid gap-1 text-xs text-muted-foreground sm:grid-cols-2">
+              <li>1. Converse with decision-maker / front desk</li>
+              <li>2. Drop card + leave the offer</li>
+              <li>3. Ask 1–2 pain-point questions</li>
+              <li>4. Book a discovery call (Calendly)</li>
+            </ul>
+
+            {dayPlan ? (
               <div className="space-y-3">
                 <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
-                  <Badge variant="outline">{plannedRoute.ordered.length} stops</Badge>
+                  <Badge variant="outline">{dayPlan.stopCount} stops</Badge>
                   <span className="text-muted-foreground">
-                    ~{(plannedRoute.totalKm * 0.621371).toFixed(1)} mi straight-line
+                    ~{dayPlan.totalMiles.toFixed(1)} mi · {dayPlan.dateLabel}
                   </span>
                 </div>
-                <ol className="space-y-1 text-xs sm:text-sm">
-                  {plannedRoute.ordered.map((stop, idx) => (
-                    <li key={stop.id} className="flex items-center gap-2">
-                      <span className="w-5 text-muted-foreground">{idx + 1}.</span>
-                      <Link href={`/companies/${stop.id}`} className="hover:underline truncate">
-                        {stop.company}
-                      </Link>
-                      <span className="text-muted-foreground ml-auto shrink-0">{stop.city}</span>
+
+                <ol className="max-h-[420px] space-y-3 overflow-y-auto pr-1">
+                  {dayPlan.stops.map((stop) => (
+                    <li key={stop.id} className="rounded-lg bg-muted/50 p-3 text-xs sm:text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="font-medium">
+                            <span className="mr-1.5 text-muted-foreground">{stop.order}.</span>
+                            <Link href={`/companies/${stop.id}`} className="hover:underline">
+                              {stop.company}
+                            </Link>
+                          </p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            {[stop.city, stop.industryCategory].filter(Boolean).join(" · ")} ·{" "}
+                            {stop.visitWindow}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="mt-2">
+                        <span className="text-muted-foreground">Opener: </span>
+                        {stop.opener}
+                      </p>
+                      {stop.opportunity ? (
+                        <p className="mt-1">
+                          <span className="text-muted-foreground">Opportunity: </span>
+                          {stop.opportunity}
+                        </p>
+                      ) : null}
+                      <div className="mt-2">
+                        <p className="text-muted-foreground">Pain points to discuss:</p>
+                        <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                          {stop.painPoints.map((pain) => (
+                            <li key={pain}>{pain}</li>
+                          ))}
+                        </ul>
+                      </div>
+                      <p className="mt-2">
+                        <span className="text-muted-foreground">Card drop: </span>
+                        {stop.cardDropLine}
+                      </p>
+                      <p className="mt-1">
+                        <span className="text-muted-foreground">Call ask: </span>
+                        {stop.callAsk}
+                      </p>
+                      <p className="mt-1 text-xs">
+                        <a
+                          href={stop.bookingUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-primary hover:underline"
+                        >
+                          Discovery call link
+                        </a>
+                      </p>
                     </li>
                   ))}
                 </ol>
@@ -379,35 +524,77 @@ export function ProspectMapView({
                       </a>
                     </Button>
                   )}
+                  <Button size="sm" variant="outline" onClick={handleCopyDayPlan}>
+                    Copy plan
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
-                    onClick={() => setSelectedIds(new Set())}
+                    onClick={() => {
+                      setDayPlan(null);
+                      setSelectedIds(new Set());
+                      setRouteName("");
+                      setPlannerMessage(null);
+                    }}
                   >
                     Clear
                   </Button>
                 </div>
 
-                <div className="flex flex-col gap-2 pt-2 border-t border-border sm:flex-row">
+                <div className="flex flex-col gap-2 border-t border-border pt-2 sm:flex-row">
                   <Input
                     placeholder="Route name"
                     value={routeName}
                     onChange={(e) => setRouteName(e.target.value)}
-                    className="h-8 text-sm flex-1"
+                    className="h-8 flex-1 text-sm"
                   />
                   <Button size="sm" onClick={handleSaveRoute} disabled={isPending}>
-                    Save Route
+                    Save route
                   </Button>
                 </div>
-                {plannerMessage && (
-                  <p className="text-xs text-muted-foreground">{plannerMessage}</p>
+                {(plannerMessage || copyStatus) && (
+                  <p className="text-xs text-muted-foreground">{copyStatus || plannerMessage}</p>
                 )}
+                <p className="text-xs text-muted-foreground">Offer: {dayPlan.offer}</p>
               </div>
-            )}
-
-            {selectedProspects.length === 0 && (
-              <p className="text-xs sm:text-sm text-muted-foreground italic">
-                No prospects selected yet.
+            ) : selectedProspects.length > 0 && plannedRoute ? (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                  <Badge variant="outline">{plannedRoute.ordered.length} selected</Badge>
+                  <span className="text-muted-foreground">
+                    ~{(plannedRoute.totalKm * 0.621371).toFixed(1)} mi straight-line — hit{" "}
+                    <strong>Plan from selection</strong> for scripts
+                  </span>
+                </div>
+                <ol className="space-y-1 text-xs sm:text-sm">
+                  {plannedRoute.ordered.map((stop, idx) => (
+                    <li key={stop.id} className="flex items-center gap-2">
+                      <span className="w-5 text-muted-foreground">{idx + 1}.</span>
+                      <Link href={`/companies/${stop.id}`} className="truncate hover:underline">
+                        {stop.company}
+                      </Link>
+                      <span className="ml-auto shrink-0 text-muted-foreground">{stop.city}</span>
+                    </li>
+                  ))}
+                </ol>
+                <div className="flex flex-wrap gap-2">
+                  {googleMapsUrl && (
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={googleMapsUrl} target="_blank" rel="noreferrer">
+                        Open in Google Maps
+                      </a>
+                    </Button>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => setSelectedIds(new Set())}>
+                    Clear
+                  </Button>
+                </div>
+                {plannerMessage && <p className="text-xs text-muted-foreground">{plannerMessage}</p>}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground italic sm:text-sm">
+                No day plan yet. Use <strong>Plan my day</strong> after discovering/filtering an area,
+                or select pins and use <strong>Plan from selection</strong>.
               </p>
             )}
           </CardContent>
@@ -419,17 +606,17 @@ export function ProspectMapView({
           </CardHeader>
           <CardContent className="space-y-3">
             {savedRoutes.length === 0 ? (
-              <p className="text-xs sm:text-sm text-muted-foreground">No saved routes yet.</p>
+              <p className="text-xs text-muted-foreground sm:text-sm">No saved routes yet.</p>
             ) : (
               savedRoutes.map((route) => (
                 <div key={route.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 p-2">
                   <div className="min-w-0">
-                    <p className="font-medium text-sm truncate">{route.name}</p>
+                    <p className="truncate text-sm font-medium">{route.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {route.stops.length} stops · ~{((route.total_distance_km ?? 0) * 0.621371).toFixed(1)} mi
                     </p>
                   </div>
-                  <div className="flex gap-1 shrink-0">
+                  <div className="flex shrink-0 gap-1">
                     <Button size="sm" variant="outline" asChild>
                       <a
                         href={buildGoogleMapsUrl(route.stops, route.start_lat, route.start_lng)}
@@ -451,6 +638,24 @@ export function ProspectMapView({
                 </div>
               ))
             )}
+
+            <div className="border-t border-border pt-3">
+              <h4 className="mb-2 text-sm font-medium">Every-stop checklist</h4>
+              <ul className="space-y-1 text-xs text-muted-foreground">
+                <li>Conversation started</li>
+                <li>Card + offer left behind</li>
+                <li>Pain points noted</li>
+                <li>Discovery call booked or declined logged</li>
+              </ul>
+              <div className="mt-3 space-y-1 text-xs">
+                <p className="font-medium">Follow-up cadence</p>
+                {FOLLOW_UP_CADENCE.map((step) => (
+                  <p key={step.day} className="text-muted-foreground">
+                    <strong>{step.action}:</strong> {step.note}
+                  </p>
+                ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>
