@@ -375,6 +375,212 @@ export async function moveContent(id: string, status: string) {
   refresh(["/content", "/approvals"]);
 }
 
+const BUFFER_CHANNELS: Record<string, string> = {
+  youtube_viral_digests: process.env.BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS || "",
+  youtube_johnny_snow: process.env.BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW || "",
+  instagram: process.env.BUFFER_CHANNEL_INSTAGRAM || "",
+};
+
+export async function scheduleToBuffer(formData: FormData) {
+  const { supabase } = await requireOwner();
+  const id = text(formData, "id");
+  const scheduledAt = text(formData, "scheduled_at");
+  const videoUrl = text(formData, "video_url");
+  const caption = text(formData, "caption");
+  const youtubeTitle = text(formData, "youtube_title");
+  const channels = formData.getAll("channels") as string[];
+
+  if (!id) throw new Error("Content ID is required");
+  if (!scheduledAt) throw new Error("Schedule time is required");
+  if (!videoUrl) throw new Error("Video URL is required");
+  if (channels.length === 0) throw new Error("Select at least one channel");
+
+  const accessToken = process.env.BUFFER_ACCESS_TOKEN?.trim();
+  if (!accessToken) {
+    throw new Error("BUFFER_ACCESS_TOKEN is not configured on the server");
+  }
+
+  const channelIds = channels
+    .map((ch) => BUFFER_CHANNELS[ch])
+    .filter(Boolean);
+
+  if (channelIds.length === 0) {
+    throw new Error("No valid Buffer channel IDs configured for selected channels");
+  }
+
+  const scheduledDate = new Date(scheduledAt);
+  const errors: string[] = [];
+  const successes: string[] = [];
+
+  for (const channelId of channelIds) {
+    const isYouTube = channels.some(
+      (ch) => ch.startsWith("youtube_") && BUFFER_CHANNELS[ch] === channelId
+    );
+
+    const postText = isYouTube && youtubeTitle ? youtubeTitle : caption;
+
+    try {
+      const response = await fetch("https://api.buffer.com", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          query: `mutation CreatePost($input: PostCreateInput!) {
+            postCreate(input: $input) {
+              post { id }
+              userErrors { message }
+            }
+          }`,
+          variables: {
+            input: {
+              channelIds: [channelId],
+              text: postText || "",
+              scheduledAt: scheduledDate.toISOString(),
+              media: [{ source: videoUrl, mediaType: "VIDEO" }],
+            },
+          },
+        }),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        if (text.includes("limit") || text.includes("10 posts")) {
+          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
+        }
+        throw new Error(`Buffer API error: ${response.status}`);
+      }
+
+      const payload = await response.json() as {
+        data?: { postCreate?: { post?: { id: string }; userErrors?: { message: string }[] } };
+        errors?: { message: string }[];
+      };
+
+      if (payload.errors?.length) {
+        const msg = payload.errors.map((e) => e.message).join("; ");
+        if (msg.includes("limit") || msg.includes("10 posts")) {
+          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
+        }
+        throw new Error(msg);
+      }
+
+      const userErrors = payload.data?.postCreate?.userErrors;
+      if (userErrors?.length) {
+        const msg = userErrors.map((e) => e.message).join("; ");
+        if (msg.includes("limit") || msg.includes("10 posts")) {
+          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
+        }
+        throw new Error(msg);
+      }
+
+      successes.push(channelId);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Unknown error";
+      errors.push(msg);
+      if (msg.includes("10-post limit")) {
+        throw new Error(msg);
+      }
+    }
+  }
+
+  if (successes.length === 0 && errors.length > 0) {
+    throw new Error(`Failed to schedule: ${errors.join("; ")}`);
+  }
+
+  const { error: updateError } = await supabase
+    .from("content_queue")
+    .update({
+      status: "scheduled",
+      scheduled_at: scheduledDate.toISOString(),
+    })
+    .eq("id", id);
+
+  if (updateError) throw new Error(updateError.message);
+
+  await logActivity(supabase, {
+    entityType: "content",
+    entityId: id,
+    action: "scheduled_to_buffer",
+    details: {
+      scheduled_at: scheduledDate.toISOString(),
+      channels: channels,
+      successes: successes.length,
+      errors: errors.length > 0 ? errors : undefined,
+    },
+  });
+
+  refresh(["/content", "/approvals"]);
+}
+
+export async function getNextFreeSlot() {
+  const { supabase } = await requireOwner();
+  
+  const slots = [12, 18, 21];
+  const maxPerDay = 3;
+  const daysToCheck = 14;
+  
+  const now = new Date();
+  const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  
+  const startDate = new Date(nyNow);
+  startDate.setHours(0, 0, 0, 0);
+  
+  const endDate = new Date(startDate);
+  endDate.setDate(endDate.getDate() + daysToCheck);
+  
+  const { data: scheduled } = await supabase
+    .from("content_queue")
+    .select("scheduled_at")
+    .eq("status", "scheduled")
+    .not("scheduled_at", "is", null)
+    .gte("scheduled_at", startDate.toISOString())
+    .lte("scheduled_at", endDate.toISOString());
+
+  const usedSlots = new Set(
+    (scheduled || [])
+      .map((row) => row.scheduled_at)
+      .filter(Boolean)
+  );
+
+  for (let dayOffset = 0; dayOffset < daysToCheck; dayOffset++) {
+    const checkDate = new Date(startDate);
+    checkDate.setDate(checkDate.getDate() + dayOffset);
+    
+    let dayCount = 0;
+    for (const slot of usedSlots) {
+      const slotDate = new Date(slot);
+      if (slotDate.toDateString() === checkDate.toDateString()) {
+        dayCount++;
+      }
+    }
+    
+    if (dayCount >= maxPerDay) continue;
+    
+    for (const hour of slots) {
+      const slotTime = new Date(checkDate);
+      slotTime.setHours(hour, 0, 0, 0);
+      
+      if (slotTime <= nyNow) continue;
+      
+      const isUsed = Array.from(usedSlots).some((used) => {
+        const usedDate = new Date(used);
+        return usedDate.getTime() === slotTime.getTime();
+      });
+      
+      if (!isUsed) {
+        return slotTime.toISOString().slice(0, 16);
+      }
+    }
+  }
+  
+  const fallback = new Date(nyNow);
+  fallback.setDate(fallback.getDate() + 1);
+  fallback.setHours(12, 0, 0, 0);
+  return fallback.toISOString().slice(0, 16);
+}
+
 export async function recordPayment(formData: FormData) {
   const { supabase } = await requireOwner();
   const dealId = text(formData, "deal_id");

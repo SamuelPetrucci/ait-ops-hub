@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { reviewContent } from "@/app/actions/mutations";
+import { ContentStatusSelect } from "@/components/content-controls";
 import { Button } from "@/components/ui/button";
 import { requireOwner } from "@/lib/auth";
 import { resolveVideoUrl, scriptParts } from "@/lib/content";
+import { formatWhen } from "@/lib/format";
 
 export const metadata = { title: "Approvals" };
 
@@ -10,10 +12,12 @@ type QueueRow = {
   id: string;
   content_id: string | null;
   title: string | null;
+  status: string;
   script_json: unknown;
   caption: string | null;
   video_url: string | null;
   storage_path: string | null;
+  scheduled_at: string | null;
   created_at: string | null;
 };
 
@@ -21,7 +25,7 @@ export default async function ApprovalsPage() {
   const { supabase } = await requireOwner();
   const { data, error } = await supabase
     .from("content_queue")
-    .select("id, content_id, title, script_json, caption, video_url, storage_path, created_at")
+    .select("id, content_id, title, status, script_json, caption, video_url, storage_path, scheduled_at, created_at")
     .eq("status", "in_review")
     .order("created_at", { ascending: false });
 
@@ -44,7 +48,7 @@ export default async function ApprovalsPage() {
         <p className="text-[11px] tracking-[0.16em] text-muted-foreground uppercase">Review</p>
         <h1 className="mt-1 text-3xl font-medium tracking-tight">Approvals</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Review clips before they go live. Approve to move to scheduled, or reject to skip.
+          Review clips before they go live. Approve to move to approved, or reject to skip.
         </p>
       </header>
 
@@ -69,9 +73,11 @@ export default async function ApprovalsPage() {
                 id={row.id}
                 code={row.content_id}
                 title={row.title}
+                status={row.status}
                 hook={script.hook}
                 caption={script.caption}
                 videoUrl={row.resolvedVideoUrl}
+                scheduledAt={row.scheduled_at}
               />
             );
           })}
@@ -85,16 +91,20 @@ function ApprovalCard({
   id,
   code,
   title,
+  status,
   hook,
   caption,
   videoUrl,
+  scheduledAt,
 }: {
   id: string;
   code: string | null;
   title: string | null;
+  status: string;
   hook: string;
   caption: string;
   videoUrl: string | null;
+  scheduledAt: string | null;
 }) {
   return (
     <article className="overflow-hidden rounded-2xl bg-card ring-1 ring-foreground/10">
@@ -116,15 +126,23 @@ function ApprovalCard({
       </div>
 
       <div className="flex flex-col gap-4 p-4 sm:p-5">
-        <div>
-          {code ? (
-            <p className="text-xs text-muted-foreground">{code}</p>
-          ) : null}
-          <h2 className="mt-0.5 text-lg font-medium leading-snug">
-            <Link href={`/content/${id}`} className="hover:underline">
-              {title || "Untitled"}
-            </Link>
-          </h2>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            {code ? (
+              <p className="text-xs text-muted-foreground">{code}</p>
+            ) : null}
+            <h2 className="mt-0.5 text-lg font-medium leading-snug">
+              <Link href={`/content/${id}`} className="hover:underline">
+                {title || "Untitled"}
+              </Link>
+            </h2>
+            {scheduledAt ? (
+              <p className="mt-1 text-xs text-sky-300/90">
+                Scheduled: {formatWhen(scheduledAt)}
+              </p>
+            ) : null}
+          </div>
+          <ContentStatusSelect id={id} currentStatus={status} />
         </div>
 
         {hook ? (

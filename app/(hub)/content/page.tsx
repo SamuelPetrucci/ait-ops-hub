@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getNextFreeSlot } from "@/app/actions/mutations";
 import { ContentBoard } from "@/components/boards";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
@@ -23,7 +24,7 @@ export default async function ContentPage({
   const status = STATUSES.includes(params.status as (typeof STATUSES)[number]) ? params.status : "";
   const month = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : "";
   const { supabase } = await requireOwner();
-  const [queue, performance, buffer] = await Promise.all([
+  const [queue, performance, buffer, suggestedTime] = await Promise.all([
     supabase
       .from("content_queue")
       .select(
@@ -40,6 +41,7 @@ export default async function ContentPage({
       .order("views", { ascending: false })
       .limit(100),
     readBufferTotals(),
+    getNextFreeSlot(),
   ]);
   if (queue.error) throw new Error(queue.error.message);
   if (performance.error) throw new Error(performance.error.message);
@@ -121,11 +123,14 @@ export default async function ContentPage({
                 title={row.title || "Untitled"}
                 status={row.status}
                 hook={script.hook || script.fullScript}
+                caption={script.caption}
                 platforms={row.platforms}
                 agent={row.assigned_agent}
                 videoUrl={row.resolvedVideoUrl}
                 notionUrl={row.notion_page_url}
                 links={liveLinks(row.platform_links, row.review_notes)}
+                scheduledAt={row.scheduled_at}
+                suggestedTime={suggestedTime}
               />
             );
           })}

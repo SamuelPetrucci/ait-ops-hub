@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
 import { SiteLink } from "@/components/site-link";
@@ -69,7 +70,7 @@ export default async function OverviewPage() {
   const rawPostedRows = [...(posted.data ?? [])].sort(byContentRecency).slice(0, 6);
   const upcomingRows = upcoming.data ?? [];
 
-  const [movingRows, postedRows] = await Promise.all([
+  const [movingRows, postedRows, suggestedTime] = await Promise.all([
     Promise.all(
       rawMovingRows.map(async (row) => ({
         ...row,
@@ -88,6 +89,7 @@ export default async function OverviewPage() {
         }),
       }))
     ),
+    getNextFreeSlot(),
   ]);
 
   return (
@@ -233,11 +235,14 @@ export default async function OverviewPage() {
                         title={row.title || "Untitled"}
                         status={row.status}
                         hook={script.hook || script.fullScript}
+                        caption={script.caption}
                         platforms={row.platforms}
                         agent={row.assigned_agent}
                         videoUrl={row.resolvedVideoUrl}
                         notionUrl={row.notion_page_url}
                         links={liveLinks(row.platform_links, row.review_notes)}
+                        scheduledAt={row.scheduled_at}
+                        suggestedTime={suggestedTime}
                       />
                     );
                   })}
@@ -265,11 +270,14 @@ export default async function OverviewPage() {
                         title={row.title || "Untitled"}
                         status={row.status}
                         hook={script.hook}
+                        caption={script.caption}
                         platforms={row.platforms}
                         agent={row.assigned_agent}
                         videoUrl={row.resolvedVideoUrl}
                         notionUrl={row.notion_page_url}
                         links={liveLinks(row.platform_links, row.review_notes)}
+                        scheduledAt={row.scheduled_at}
+                        suggestedTime={suggestedTime}
                       />
                     );
                   })}
