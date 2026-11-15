@@ -3,7 +3,10 @@ import { SESSION_COOKIE, sessionValid } from "@/lib/session";
 
 export function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
-  const isPublic = path === "/login" || path.startsWith("/login/");
+  const isPublic =
+    path === "/login" ||
+    path.startsWith("/login/") ||
+    path.startsWith("/api/linq/");
   const signedIn = sessionValid(request.cookies.get(SESSION_COOKIE)?.value);
 
   if (!signedIn && !isPublic) {

@@ -30,6 +30,11 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 | `BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS` | Optional. Defaults to Viral Digests channel |
 | `BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW` | Optional. Defaults to Johnny Snow channel |
 | `BUFFER_CHANNEL_INSTAGRAM` | Optional. Defaults to Instagram business channel |
+| `LINQ_API_KEY` | Server only. Linq API token (`LINQ_API_V3_API_KEY` also accepted) |
+| `LINQ_WEBHOOK_SECRET` | Server only. `whsec_…` signing secret from the webhook subscription |
+| `OWNER_PHONE` | Server only. Your E.164 number for SMS alerts; inbound from this number is ignored |
+| `AI_GATEWAY_API_KEY` | Server only. Vercel AI Gateway key for SMS replies |
+| `SMS_ASSISTANT_MODEL` | Optional. Defaults to `openai/gpt-4o-mini` |
 
 ## What the hub does
 
@@ -37,7 +42,8 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 - Company pages with a timeline, follow-ups, tasks, and outreach drafts.
 - Revenue against the $5,000 goal by 24 Nov 2026 (stretch $10,000), plus the service catalog.
 - Agent roster, startup directives, a single approvals inbox, task and content boards, and daily reports.
-- Command palette on Ctrl/Cmd-K. Live updates for approvals, content, activities, and tasks.
+- **SMS Inbox** — Linq inbound assistant replies, lead capture, handoff flags, and bot pause/takeover.
+- Command palette on Ctrl/Cmd-K. Live updates for approvals, content, activities, tasks, and SMS threads.
 
 Approval changes status, `approved_by`, `review_notes`, and `reviewed_at`. From an **approved** card, **Schedule in Buffer** picks the next free slot from your Buffer posting schedules (America/New_York), requires a caption/description, and creates the scheduled video posts via the Buffer API.
 
@@ -117,6 +123,49 @@ Migrations live in `supabase/migrations` and are already applied to `form-submis
 
 New tables: `contacts`, `deals`, `payments`, `activities`, `agents`, `agent_directives`, `saved_views`.
 
+SMS assistant tables (apply `supabase/migrations/20261115210000_sms_assistant.sql` in the Supabase SQL editor before enabling the webhook): `sms_faqs`, `sms_conversations`, `sms_messages`.
+
 Deals were seeded for every prospect whose stage is `sent` or later (68 deals, 63 of them `sent`). Primary contacts were seeded from the existing contact string.
 
 Deal status `meeting` maps back to prospect stage `meeting_booked`. Deal status `proposal` maps to `audit_proposed`. The other deal statuses use the same name as the prospect stage.
+
+## SMS / iMessage assistant (Linq)
+
+Samuel's assistant answers inbound texts on the Linq number: warm, short replies (≤300 chars) via Vercel AI Gateway, FAQ grounding in `sms_faqs`, last-10-message memory, STOP/HELP compliance, handoff to Samuel on buy/book/anger/uncertainty, and owner alerts (approvals row + Linq text to `OWNER_PHONE`).
+
+**Do not enable the production webhook or send real texts until Samuel approves.**
+
+### Connect the Linq webhook
+
+1. Apply `supabase/migrations/20261115210000_sms_assistant.sql` in the `form-submissions` SQL editor.
+2. Set the env vars above in Vercel (Preview first). Never commit keys.
+3. Deploy a preview (or local forward) so `https://<host>/api/linq/inbound` is reachable over HTTPS.
+4. Create a subscription (CLI or dashboard). Save the `signing_secret` immediately into `LINQ_WEBHOOK_SECRET`:
+
+```bash
+linq webhooks create \
+  --url "https://YOUR_HOST/api/linq/inbound" \
+  --events message.received
+```
+
+Or via API: `POST https://api.linqapp.com/api/partner/v3/webhook-subscriptions` with `target_url` and `subscribed_events: ["message.received"]`.
+
+5. Local smoke test without a public URL:
+
+```bash
+linq webhooks listen --forward-to http://localhost:3000/api/linq/inbound
+```
+
+The route verifies Standard Webhooks signatures (`webhook-id` / `webhook-timestamp` / `webhook-signature`) with the Linq SDK `unwrap`, then processes asynchronously.
+
+### Test plan (no production sends until approved)
+
+1. **Migration** — Confirm `sms_faqs` has seed rows; empty `sms_conversations` / `sms_messages`.
+2. **Signature** — POST garbage to `/api/linq/inbound` → `401`. Valid signed `message.received` → `200` `{ received: true }`.
+3. **Happy path** — Inbound FAQ (services / websites / AI) → outbound reply under 300 chars, casual tone, no invented prices; rows in `sms_messages` (inbound + outbound).
+4. **Pricing** — Ask "how much?" → depends-on-scope + offer to quote/book; no dollar amounts.
+5. **Memory** — Send a follow-up; reply uses prior context (last 10).
+6. **Handoff** — Ask for Samuel / book a call / buy → exact handoff line, `status = needs_human`, bot paused, approvals insert + owner text (only when you intentionally enable sends).
+7. **Compliance** — `STOP` → opt-out confirmation with `override_optout`, no further bot replies until they text again; `HELP` → help text; "are you a bot?" → honest AI answer.
+8. **Safety** — Inbound from `OWNER_PHONE` ignored; rapid spam hits rate limit; dashboard **SMS Inbox** lists threads, transcript, Pause/Resume bot.
+9. **Production gate** — Keep the Linq subscription disabled (or pointed at preview only) until Samuel signs off.

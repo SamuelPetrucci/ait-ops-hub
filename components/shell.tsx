@@ -28,7 +28,7 @@ export function Shell({
   children,
 }: {
   email: string;
-  badges: { leads: number; content: number; approvals: number };
+  badges: { leads: number; content: number; approvals: number; sms: number };
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -184,9 +184,13 @@ function Account({ email }: { email: string }) {
   );
 }
 
-function badgeFor(href: string, badges: { leads: number; content: number; approvals: number }) {
+function badgeFor(
+  href: string,
+  badges: { leads: number; content: number; approvals: number; sms: number },
+) {
   if (href === "/leads") return badges.leads;
   if (href === "/content") return badges.content;
   if (href === "/approvals") return badges.approvals;
+  if (href === "/sms") return badges.sms;
   return 0;
 }
