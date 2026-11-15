@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { requireOwner } from "@/lib/auth";
-import { liveLinks, scriptParts } from "@/lib/content";
+import { liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { formatWhen, labelize } from "@/lib/format";
 
 export const metadata = { title: "Viewer" };
@@ -26,6 +26,10 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
   const platforms = (data.platforms || []) as string[];
   const sources = ((data.source_urls || []) as string[]).filter(Boolean);
   const readable = readableScript(script.fullScript);
+  const videoUrl = await resolveVideoUrl({
+    video_url: data.video_url,
+    storage_path: data.storage_path,
+  });
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -51,10 +55,10 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <section className="overflow-hidden rounded-3xl bg-black ring-1 ring-foreground/10">
-          {data.video_url ? (
+          {videoUrl ? (
             <video
-              key={data.video_url}
-              src={data.video_url}
+              key={videoUrl}
+              src={videoUrl}
               controls
               playsInline
               preload="metadata"
@@ -66,8 +70,8 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
             </div>
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-white/10 px-4 py-3 text-sm">
-            {data.video_url ? (
-              <a href={data.video_url} target="_blank" rel="noreferrer" className="text-amber-200 hover:underline">
+            {videoUrl ? (
+              <a href={videoUrl} target="_blank" rel="noreferrer" className="text-amber-200 hover:underline">
                 Open video file
               </a>
             ) : null}

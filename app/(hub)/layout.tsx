@@ -25,6 +25,7 @@ export default async function HubLayout({ children }: { children: ReactNode }) {
       badges={{
         leads: followUps.count || 0,
         content: content.count || 0,
+        approvals: content.count || 0,
       }}
     >
       {children}
