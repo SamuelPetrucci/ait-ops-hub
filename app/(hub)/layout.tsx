@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export default async function HubLayout({ children }: { children: ReactNode }) {
   const { supabase, user } = await requireOwner();
   const today = nyToday();
-  const [content, followUps] = await Promise.all([
+  const [content, followUps, smsNeeds] = await Promise.all([
     supabase.from("content_queue").select("id", { count: "exact", head: true }).eq("status", "in_review"),
     supabase
       .from("prospects")
@@ -17,6 +17,10 @@ export default async function HubLayout({ children }: { children: ReactNode }) {
       .in("stage", [...LEAD_STAGES])
       .not("next_follow_up_due", "is", null)
       .lte("next_follow_up_due", today),
+    supabase
+      .from("sms_conversations")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "needs_human"),
   ]);
 
   return (
@@ -26,6 +30,8 @@ export default async function HubLayout({ children }: { children: ReactNode }) {
         leads: followUps.count || 0,
         content: content.count || 0,
         approvals: content.count || 0,
+        // 0 until migration 20261115210000_sms_assistant.sql is applied
+        sms: smsNeeds.error ? 0 : smsNeeds.count || 0,
       }}
     >
       {children}

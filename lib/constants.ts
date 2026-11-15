@@ -93,4 +93,5 @@ export const NAV = [
   { href: "/prospect-map", label: "Sales Map" },
   { href: "/content", label: "Content" },
   { href: "/approvals", label: "Approvals" },
+  { href: "/sms", label: "SMS Inbox" },
 ] as const;

@@ -4,7 +4,14 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { createBrowserSupabase } from "@/lib/supabase/browser";
 
-const TABLES = ["approvals", "content_queue", "activities", "tasks"] as const;
+const TABLES = [
+  "approvals",
+  "content_queue",
+  "activities",
+  "tasks",
+  "sms_conversations",
+  "sms_messages",
+] as const;
 
 export function RealtimeRefresh() {
   const router = useRouter();
