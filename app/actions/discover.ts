@@ -8,7 +8,6 @@ import {
   type DiscoveredBusiness,
   type DiscoverAreaResult,
 } from "@/lib/discovery/overpass";
-import { estimateSizeFromWebsite } from "@/lib/discovery/size";
 import { logActivity } from "@/lib/activity";
 
 export type DiscoverRequest = {
@@ -43,31 +42,13 @@ export async function discoverArea(input: DiscoverRequest): Promise<DiscoverArea
   await requireOwner();
 
   try {
-    const result = await discoverAreaBusinesses({
+    return await discoverAreaBusinesses({
       locationQuery: input.locationQuery || "Groton, CT",
       radiusMiles: input.radiusMiles || 10,
       categoryIds: input.categoryIds?.length ? input.categoryIds : DISCOVERY_CATEGORIES.map((c) => c.id),
       sizeBuckets: input.sizeBuckets?.length ? input.sizeBuckets : undefined,
+      enrichWebsites: Boolean(input.enrichWebsites),
     });
-
-    if (input.enrichWebsites) {
-      const sample = result.businesses.slice(0, 12);
-      await Promise.all(
-        sample.map(async (biz) => {
-          if (biz.sizeBucket !== "unknown" && biz.sizeSource === "wikidata") return;
-          const fromWeb = await estimateSizeFromWebsite(biz.website);
-          if (fromWeb) {
-            biz.sizeBucket = fromWeb;
-            biz.sizeSource = "tags";
-          }
-        }),
-      );
-      if (input.sizeBuckets?.length) {
-        result.businesses = result.businesses.filter((b) => input.sizeBuckets.includes(b.sizeBucket));
-      }
-    }
-
-    return result;
   } catch (error) {
     return { error: error instanceof Error ? error.message : "Discovery failed" };
   }

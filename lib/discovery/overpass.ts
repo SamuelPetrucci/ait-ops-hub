@@ -45,6 +45,15 @@ export type DiscoverAreaInput = {
   sizeBuckets?: CompanySizeBucket[];
   lat?: number;
   lng?: number;
+  enrichWebsites?: boolean;
+};
+
+export type DiscoverProgress = {
+  stage: "geocode" | "overpass" | "wikidata" | "assemble" | "enrich" | "done";
+  label: string;
+  percent: number;
+  found?: number;
+  detail?: string;
 };
 
 export type DiscoverAreaResult = {
@@ -54,6 +63,8 @@ export type DiscoverAreaResult = {
   queriedCategories: string[];
   source: "OpenStreetMap / Overpass";
 };
+
+export type DiscoverProgressHandler = (progress: DiscoverProgress) => void | Promise<void>;
 
 type OverpassElement = {
   type: "node" | "way" | "relation";
@@ -161,7 +172,15 @@ async function runOverpass(query: string): Promise<OverpassElement[]> {
   throw lastError || new Error("Overpass unavailable");
 }
 
-export async function discoverAreaBusinesses(input: DiscoverAreaInput): Promise<DiscoverAreaResult> {
+async function report(onProgress: DiscoverProgressHandler | undefined, progress: DiscoverProgress) {
+  if (!onProgress) return;
+  await onProgress(progress);
+}
+
+export async function discoverAreaBusinesses(
+  input: DiscoverAreaInput,
+  onProgress?: DiscoverProgressHandler,
+): Promise<DiscoverAreaResult> {
   const radiusMiles = Math.min(Math.max(input.radiusMiles || 10, 1), 40);
   const radiusMeters = Math.round(radiusMiles * 1609.34);
   const categories =
@@ -173,15 +192,47 @@ export async function discoverAreaBusinesses(input: DiscoverAreaInput): Promise<
     throw new Error("Pick at least one industry / service category");
   }
 
+  const locationLabel = (input.locationQuery || "Groton, CT").trim();
+  await report(onProgress, {
+    stage: "geocode",
+    label: `Locating ${locationLabel}…`,
+    percent: 8,
+    detail: "Resolving town center",
+  });
+
   const center = await resolveLocation(input.locationQuery, input.lat, input.lng);
+
+  await report(onProgress, {
+    stage: "overpass",
+    label: "Searching OpenStreetMap…",
+    percent: 20,
+    detail: `${categories.length} niche${categories.length === 1 ? "" : "s"} · ${radiusMiles} mi radius`,
+  });
+
   const tagFilters = categories.flatMap((c) => c.tags);
   const query = buildOverpassQuery(center.lat, center.lng, radiusMeters, tagFilters);
   const elements = await runOverpass(query);
+
+  await report(onProgress, {
+    stage: "wikidata",
+    label: "Estimating company sizes…",
+    percent: 55,
+    found: elements.length,
+    detail: `${elements.length} map feature${elements.length === 1 ? "" : "s"} returned`,
+  });
 
   const wikidataIds = elements
     .map((el) => el.tags?.wikidata)
     .filter((id): id is string => Boolean(id));
   const wikiSizes = await fetchWikidataEmployeeBuckets(wikidataIds);
+
+  await report(onProgress, {
+    stage: "assemble",
+    label: "Building business list…",
+    percent: 72,
+    found: elements.length,
+    detail: wikiSizes.size > 0 ? `${wikiSizes.size} sized via Wikidata` : "Using OSM size heuristics",
+  });
 
   const byKey = new Map<string, DiscoveredBusiness>();
 
@@ -232,6 +283,38 @@ export async function discoverAreaBusinesses(input: DiscoverAreaInput): Promise<
   if (input.sizeBuckets && input.sizeBuckets.length > 0) {
     businesses = businesses.filter((b) => input.sizeBuckets!.includes(b.sizeBucket));
   }
+
+  if (input.enrichWebsites) {
+    const { estimateSizeFromWebsite } = await import("@/lib/discovery/size");
+    const sample = businesses.slice(0, 12);
+    for (let i = 0; i < sample.length; i++) {
+      const biz = sample[i];
+      await report(onProgress, {
+        stage: "enrich",
+        label: `Sniffing websites…`,
+        percent: 75 + Math.round(((i + 1) / Math.max(sample.length, 1)) * 20),
+        found: businesses.length,
+        detail: `${i + 1}/${sample.length} · ${biz.company}`,
+      });
+      if (biz.sizeBucket !== "unknown" && biz.sizeSource === "wikidata") continue;
+      const fromWeb = await estimateSizeFromWebsite(biz.website);
+      if (fromWeb) {
+        biz.sizeBucket = fromWeb;
+        biz.sizeSource = "tags";
+      }
+    }
+    if (input.sizeBuckets && input.sizeBuckets.length > 0) {
+      businesses = businesses.filter((b) => input.sizeBuckets!.includes(b.sizeBucket));
+    }
+  }
+
+  await report(onProgress, {
+    stage: "done",
+    label: `Found ${businesses.length} business${businesses.length === 1 ? "" : "es"}`,
+    percent: 100,
+    found: businesses.length,
+    detail: center.label,
+  });
 
   return {
     center: { lat: center.lat, lng: center.lng, label: center.label },
