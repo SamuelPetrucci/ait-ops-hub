@@ -80,6 +80,15 @@ function FitBounds({ prospects }: { prospects: MappedProspect[] }) {
   return null;
 }
 
+type PlannedStop = {
+  id: string;
+  company: string;
+  lat: number;
+  lng: number;
+  city: string | null;
+  industry: string | null;
+};
+
 type ProspectMapProps = {
   prospects: MappedProspect[];
   unmapped: { id: string; company: string; city: string | null; region: string | null }[];
@@ -87,6 +96,9 @@ type ProspectMapProps = {
   routes: RouteInfo[];
   showRoutes: boolean;
   onToggleRoutes: () => void;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  plannedRoute: PlannedStop[];
 };
 
 export function ProspectMapClient({
@@ -96,16 +108,31 @@ export function ProspectMapClient({
   routes,
   showRoutes,
   onToggleRoutes,
+  selectedIds,
+  onToggleSelect,
+  plannedRoute,
 }: ProspectMapProps) {
   const filteredProspects = useMemo(() => {
     return prospects.filter((p) => {
       if (filters.stage && p.stage !== filters.stage) return false;
       if (filters.routeId && p.route_id !== filters.routeId) return false;
       if (filters.category && p.industry !== filters.category) return false;
+      if (filters.town && p.city !== filters.town) return false;
       if (filters.maxDistance && p.miles_from_home && p.miles_from_home > filters.maxDistance) return false;
+      if (filters.minScore && (p.lead_score ?? 0) < filters.minScore) return false;
       return true;
     });
   }, [prospects, filters]);
+
+  const plannedRoutePolyline = useMemo(() => {
+    if (plannedRoute.length === 0) return [];
+    const points: [number, number][] = [HOME_POSITION];
+    for (const stop of plannedRoute) {
+      points.push([stop.lat, stop.lng]);
+    }
+    points.push(HOME_POSITION);
+    return points;
+  }, [plannedRoute]);
 
   const routePolylines = useMemo(() => {
     if (!showRoutes) return [];
@@ -123,12 +150,12 @@ export function ProspectMapClient({
   }, [routes, showRoutes, filters.routeId]);
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[1fr_320px]">
+    <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="flex flex-col gap-4">
         <MapContainer
           center={HOME_POSITION}
           zoom={10}
-          className="h-[600px] rounded-xl ring-1 ring-foreground/10"
+          className="h-[400px] rounded-xl ring-1 ring-foreground/10 sm:h-[500px] lg:h-[600px]"
           scrollWheelZoom
         >
           <TileLayer
@@ -160,11 +187,23 @@ export function ProspectMapClient({
             </Popup>
           </Marker>
 
-          {filteredProspects.map((prospect) => (
+          {plannedRoutePolyline.length > 0 && (
+            <Polyline
+              positions={plannedRoutePolyline}
+              pathOptions={{ color: "#10b981", weight: 4, opacity: 0.8, dashArray: "10 5" }}
+            />
+          )}
+
+          {filteredProspects.map((prospect) => {
+            const isSelected = selectedIds.has(prospect.id);
+            return (
             <Marker
               key={prospect.id}
               position={[prospect.lat, prospect.lng]}
-              icon={createColoredIcon(getStageColor(prospect.stage))}
+              icon={createColoredIcon(isSelected ? "#10b981" : getStageColor(prospect.stage))}
+              eventHandlers={{
+                click: () => onToggleSelect(prospect.id),
+              }}
             >
               <Popup>
                 <div className="min-w-[200px] space-y-1">
@@ -217,7 +256,8 @@ export function ProspectMapClient({
                 </div>
               </Popup>
             </Marker>
-          ))}
+            );
+          })}
 
           {routePolylines.map((route) => (
             <Polyline key={route.id} positions={route.points} pathOptions={{ color: route.color, weight: 3, opacity: 0.7 }} />

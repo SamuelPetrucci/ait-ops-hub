@@ -16,6 +16,7 @@ export type MappedProspect = {
   visit_opener: string | null;
   primary_opportunity: string | null;
   notes: string | null;
+  lead_score: number | null;
 };
 
 export type UnmappedProspect = {
@@ -30,6 +31,8 @@ export type ProspectMapFilters = {
   routeId: string;
   category: string;
   maxDistance: number;
+  town: string;
+  minScore: number;
 };
 
 export type RouteStop = MappedProspect;
@@ -72,4 +75,8 @@ export function getUniqueCategories(prospects: MappedProspect[]): string[] {
 
 export function getUniqueRouteIds(prospects: MappedProspect[]): string[] {
   return [...new Set(prospects.map((p) => p.route_id).filter((r): r is string => !!r))].sort();
+}
+
+export function getUniqueTowns(prospects: MappedProspect[]): string[] {
+  return [...new Set(prospects.map((p) => p.city).filter((c): c is string => !!c))].sort();
 }

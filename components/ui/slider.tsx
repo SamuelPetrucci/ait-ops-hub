@@ -15,7 +15,7 @@ const Slider = React.forwardRef<HTMLInputElement, SliderProps>(
     return (
       <div className="flex flex-col gap-1">
         {(label || showValue) && (
-          <div className="flex items-center justify-between text-sm">
+          <div className="flex items-center justify-between text-xs sm:text-sm">
             {label && <span className="text-muted-foreground">{label}</span>}
             {showValue && (
               <span className="tabular-nums font-medium">
