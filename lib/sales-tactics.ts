@@ -196,3 +196,66 @@ export function resolveIndustryCategory(industry: string | null | undefined): In
   }
   return "Other";
 }
+
+const PROPOSAL_SKETCHES: Record<
+  IndustryCategory,
+  { service: string; firstWin: string; pilot: string }
+> = {
+  "Professional Services": {
+    service: "intake + after-hours lead capture",
+    firstWin: "missed-call text-back and a clean intake form → CRM",
+    pilot: "2-week pilot on lead follow-up, then retainer for ongoing ops",
+  },
+  "Healthcare Admin": {
+    service: "front-desk scheduling / reminder automation",
+    firstWin: "appointment reminders + no-show reduction workflow",
+    pilot: "2-week reminder pilot on one provider schedule, then expand",
+  },
+  "Real Estate/Property Mgmt": {
+    service: "leasing follow-up + tenant request triage",
+    firstWin: "auto-respond + route new inquiries and maintenance tickets",
+    pilot: "2-week leasing inbox pilot, then retainer for ticket ops",
+  },
+  "B2B Services": {
+    service: "quote / job follow-up automation",
+    firstWin: "stalled-quote nudges and a simple job status board",
+    pilot: "2-week follow-up pilot on open quotes, then retainer",
+  },
+  Restaurant: {
+    service: "catering / reservation lead capture + review replies",
+    firstWin: "after-hours inquiry capture and a review-reply draft pack",
+    pilot: "2-week inquiry capture pilot, then light retainer",
+  },
+  Contractor: {
+    service: "estimate request capture + job update texts",
+    firstWin: "missed-call → estimate form while the crew is on site",
+    pilot: "2-week estimate-capture pilot, then retainer for dispatch updates",
+  },
+  Other: {
+    service: "lead follow-up + admin automation",
+    firstWin: "catch missed leads and cut one repetitive admin chore",
+    pilot: "2-week pilot on the loudest pain, then $200+/mo retainer",
+  },
+};
+
+/**
+ * Rough in-person proposal sketch for a stop — industry template, optionally
+ * sharpened with a stored service niche or primary opportunity.
+ */
+export function buildProposalIdea(opts: {
+  company: string;
+  industry?: string | null;
+  proposedService?: string | null;
+  primaryOpportunity?: string | null;
+}): string {
+  const category = resolveIndustryCategory(opts.industry);
+  const sketch = PROPOSAL_SKETCHES[category];
+  const service = opts.proposedService?.trim() || sketch.service;
+  const opportunityHook = opts.primaryOpportunity?.trim();
+
+  if (opportunityHook) {
+    return `For ${opts.company}: pitch a lightweight “${service}” setup aimed at “${opportunityHook}”. Shape: discovery call → ${sketch.pilot}. Anchor offer: ${OFFER.summary}.`;
+  }
+
+  return `For ${opts.company}: propose ${service} — first win is ${sketch.firstWin}. Shape: discovery call → ${sketch.pilot}. Anchor offer: ${OFFER.summary}.`;
+}

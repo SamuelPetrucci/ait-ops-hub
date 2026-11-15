@@ -15,6 +15,7 @@ export type MappedProspect = {
   visit_order: number | null;
   visit_opener: string | null;
   primary_opportunity: string | null;
+  proposed_service: string | null;
   notes: string | null;
   lead_score: number | null;
 };

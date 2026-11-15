@@ -11,15 +11,39 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { useRouter } from "next/navigation";
 
-export function AreaDiscovery() {
+export type DiscoveryPin = {
+  lat: number;
+  lng: number;
+  label: string;
+};
+
+type AreaDiscoveryProps = {
+  pin: DiscoveryPin | null;
+  onPinChange: (pin: DiscoveryPin | null) => void;
+  dropPinMode: boolean;
+  onDropPinModeChange: (enabled: boolean) => void;
+  radiusMiles: number;
+  onRadiusChange: (miles: number) => void;
+  results: DiscoveredBusiness[];
+  onResultsChange: (businesses: DiscoveredBusiness[]) => void;
+};
+
+export function AreaDiscovery({
+  pin,
+  onPinChange,
+  dropPinMode,
+  onDropPinModeChange,
+  radiusMiles,
+  onRadiusChange,
+  results,
+  onResultsChange,
+}: AreaDiscoveryProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [locationQuery, setLocationQuery] = useState("Groton, CT");
-  const [radiusMiles, setRadiusMiles] = useState(12);
   const [categoryIds, setCategoryIds] = useState<string[]>(["real_estate", "professional", "healthcare"]);
   const [sizeBuckets, setSizeBuckets] = useState<CompanySizeBucket[]>(["1-10", "11-50", "unknown"]);
   const [enrichWebsites, setEnrichWebsites] = useState(false);
-  const [results, setResults] = useState<DiscoveredBusiness[]>([]);
   const [meta, setMeta] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -45,23 +69,34 @@ export function AreaDiscovery() {
     setMessage(null);
     startTransition(async () => {
       const result = await discoverArea({
-        locationQuery,
+        locationQuery: pin?.label || locationQuery,
         radiusMiles,
         categoryIds,
         sizeBuckets,
         enrichWebsites,
+        lat: pin?.lat,
+        lng: pin?.lng,
       });
       if ("error" in result) {
         setMessage(result.error);
-        setResults([]);
+        onResultsChange([]);
         setMeta(null);
         return;
       }
-      setResults(result.businesses);
+      onResultsChange(result.businesses);
       setSelected(new Set(result.businesses.slice(0, 25).map((b) => b.osmKey)));
       setMeta(
         `${result.businesses.length} businesses · ${result.radiusMiles} mi of ${result.center.label} · ${result.source}`,
       );
+      // Keep pin synced with the resolved search center
+      onPinChange({
+        lat: result.center.lat,
+        lng: result.center.lng,
+        label: result.center.label,
+      });
+      if (!pin) {
+        setLocationQuery(result.center.label.split(",").slice(0, 2).join(",").trim() || locationQuery);
+      }
     });
   };
 
@@ -112,10 +147,17 @@ export function AreaDiscovery() {
       setMessage(
         `Imported ${result.imported}, skipped ${result.skipped}${
           result.errors.length ? ` · ${result.errors.slice(0, 2).join("; ")}` : ""
-        }`,
+        }. Use Plan my day for a route with pitches + proposal ideas.`,
       );
+      onResultsChange([]);
+      setSelected(new Set());
       router.refresh();
     });
+  };
+
+  const clearPin = () => {
+    onPinChange(null);
+    onDropPinModeChange(false);
   };
 
   return (
@@ -125,7 +167,7 @@ export function AreaDiscovery() {
           <div>
             <CardTitle className="text-base sm:text-lg">Discover area (free)</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              OpenStreetMap + Wikidata — no Apify runs. Filter by industry, service niche, and estimated size.
+              Drop a pin on the map or type a town. OpenStreetMap + Wikidata — filter by niche and size, then import.
             </p>
           </div>
           <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
@@ -135,12 +177,42 @@ export function AreaDiscovery() {
       </CardHeader>
       {open ? (
         <CardContent className="space-y-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant={dropPinMode ? "default" : "outline"}
+              onClick={() => onDropPinModeChange(!dropPinMode)}
+            >
+              {dropPinMode ? "Click the map…" : "Drop pin on map"}
+            </Button>
+            {pin ? (
+              <Button size="sm" variant="ghost" onClick={clearPin}>
+                Clear pin
+              </Button>
+            ) : null}
+            {pin ? (
+              <span className="text-xs text-muted-foreground">
+                Pin: {pin.label} ({pin.lat.toFixed(4)}, {pin.lng.toFixed(4)})
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground">Or search by town name below</span>
+            )}
+          </div>
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="sm:col-span-2 lg:col-span-1">
-              <label className="mb-1 block text-xs text-muted-foreground">Town / area</label>
+              <label className="mb-1 block text-xs text-muted-foreground">
+                {pin ? "Pin label / town" : "Town / area"}
+              </label>
               <Input
-                value={locationQuery}
-                onChange={(e) => setLocationQuery(e.target.value)}
+                value={pin ? pin.label : locationQuery}
+                onChange={(e) => {
+                  if (pin) {
+                    onPinChange({ ...pin, label: e.target.value });
+                  } else {
+                    setLocationQuery(e.target.value);
+                  }
+                }}
                 placeholder="Groton, CT"
                 className="h-9"
               />
@@ -153,7 +225,7 @@ export function AreaDiscovery() {
                 max={30}
                 step={1}
                 value={radiusMiles}
-                onChange={(e) => setRadiusMiles(Number(e.target.value))}
+                onChange={(e) => onRadiusChange(Number(e.target.value))}
               />
             </div>
             <div className="flex items-end">
@@ -213,7 +285,7 @@ export function AreaDiscovery() {
 
           <div className="flex flex-wrap gap-2">
             <Button size="sm" onClick={handleDiscover} disabled={isPending || categoryIds.length === 0}>
-              {isPending ? "Searching map…" : "Search OpenStreetMap"}
+              {isPending ? "Searching map…" : pin ? "Search around pin" : "Search OpenStreetMap"}
             </Button>
             {filtered.length > 0 ? (
               <>

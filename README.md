@@ -53,13 +53,13 @@ Open **Profile** or **Integrations** from the account menu. The hub pings Supaba
 
 ## Area discovery (free)
 
-Sales Map → **Discover area** pulls local businesses from OpenStreetMap via Overpass (no Apify / Google Places). Filter by industry/service niche and estimated company size (Wikidata headcount when tagged, otherwise OSM heuristics; optional free website sniff). Import selected rows into `prospects`.
+Sales Map → **Discover area** pulls local businesses from OpenStreetMap via Overpass (no Apify / Google Places). Drop a pin on the map (or type a town), set a radius, filter by industry/service niche and estimated company size (Wikidata headcount when tagged, otherwise OSM heuristics; optional free website sniff). Discovered businesses show as blue preview pins before you import selected rows into `prospects`.
 
 Apply `supabase/migrations/20261115090000_prospect_discovery.sql` in the Supabase SQL editor so `osm_id`, `company_size_bucket`, and `discovery_source` exist. Import still works without it, but dedupe by OSM id is weaker until the migration is applied.
 
 ## Day sales plan
 
-On Sales Map, **Plan my day** (or **Plan from selection**) builds a field route from Groton, CT: nearest-neighbor order with visit-window clustering (contractors early, restaurants afternoon). Each stop includes opener, pain points to discuss, card-drop line, discovery-call ask (Calendly), Google Maps export, copyable summary, and save-to-`sales_routes`. Scripts live in `lib/sales-tactics.ts`; planner logic in `lib/day-plan.ts`.
+On Sales Map, **Plan my day** (or **Plan from selection**) builds a field route from Groton, CT: nearest-neighbor order with visit-window clustering (contractors early, restaurants afternoon). Each stop includes pitch opener, rough proposal idea for that company, pain points to discuss, card-drop line, discovery-call ask (Calendly), Google Maps export, copyable summary, and save-to-`sales_routes`. Scripts and proposal sketches live in `lib/sales-tactics.ts`; planner logic in `lib/day-plan.ts`.
 
 ## How agents read directives and write activities
 
