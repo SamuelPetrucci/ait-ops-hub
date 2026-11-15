@@ -5,10 +5,10 @@ import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
 import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
-import { bufferConfigured, readBufferTotals } from "@/lib/buffer";
+import { bufferConfigured, fetchBufferCalendarPosts, readBufferTotals } from "@/lib/buffer";
 import { CONTENT_COLUMNS } from "@/lib/constants";
 import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
-import { formatWhen, nestedString } from "@/lib/format";
+import { formatWhen, nestedString, nyToday } from "@/lib/format";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const metadata = { title: "Content" };
@@ -22,10 +22,11 @@ export default async function ContentPage({
 }) {
   const params = await searchParams;
   const status = STATUSES.includes(params.status as (typeof STATUSES)[number]) ? params.status : "";
-  const month = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : "";
+  const month =
+    params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : nyToday().slice(0, 7);
   const niche = params.niche || "";
   const { supabase } = await requireOwner();
-  const [queue, performance, buffer, suggestedTime] = await Promise.all([
+  const [queue, performance, buffer, suggestedTime, bufferCalendar] = await Promise.all([
     supabase
       .from("content_queue")
       .select(
@@ -43,6 +44,7 @@ export default async function ContentPage({
       .limit(100),
     readBufferTotals(),
     getNextFreeSlot(),
+    fetchBufferCalendarPosts(month).catch(() => []),
   ]);
   if (queue.error) throw new Error(queue.error.message);
   if (performance.error) throw new Error(performance.error.message);
@@ -80,6 +82,21 @@ export default async function ContentPage({
         .sort((a, b) => actionRank(a.status) - actionRank(b.status));
   const statusFilters = CONTENT_COLUMNS.filter(([id]) => id === status || (statusCounts.get(id) || 0) > 0);
   const needsSchedule = rows.filter((row) => row.status === "approved" && !row.scheduled_at).length;
+  const byCode = new Map(
+    rows
+      .filter((row) => row.content_id)
+      .map((row) => [String(row.content_id).toUpperCase(), row.id] as const),
+  );
+  const calendarItems = bufferCalendar.map((item) => ({
+    id: item.id,
+    content_id: item.content_id,
+    title: item.title,
+    status: item.status,
+    platforms: item.platforms,
+    scheduled_at: item.scheduled_at,
+    posted_at: item.posted_at,
+    content_queue_id: item.content_id ? byCode.get(item.content_id.toUpperCase()) || null : null,
+  }));
 
   return (
     <div className="flex w-full flex-col gap-6 md:gap-8">
@@ -93,7 +110,7 @@ export default async function ContentPage({
             <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Library</p>
             <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Content</h1>
             <p className="mt-1 text-sm text-ink-soft">
-              Approve, schedule with a caption, then watch performance
+              Approve, schedule with a caption, then watch the live Buffer calendar
               {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
               {buffer.syncedAt ? ` · Buffer synced ${formatWhen(buffer.syncedAt)}` : ""}.
             </p>
@@ -144,9 +161,15 @@ export default async function ContentPage({
       </div>
 
       <PostCalendar
-        items={rows}
-        month={month || undefined}
-        query={{ ...(status ? { status } : {}), ...(month ? { month } : {}), ...(niche ? { niche } : {}) }}
+        items={calendarItems}
+        month={month}
+        source="buffer"
+        configured={buffer.configured || bufferConfigured()}
+        query={{
+          ...(status ? { status } : {}),
+          month,
+          ...(niche ? { niche } : {}),
+        }}
       />
 
       <section className="flex flex-col gap-3">

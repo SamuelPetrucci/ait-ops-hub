@@ -91,50 +91,65 @@ export async function fetchBufferAggregate(days = 30) {
   };
 }
 
-export async function fetchBufferSentPosts(limit = 50): Promise<BufferPost[]> {
+type BufferPostNode = {
+  id: string;
+  text: string | null;
+  status?: string | null;
+  sentAt: string | null;
+  dueAt: string | null;
+  channelId: string;
+  metrics: BufferMetric[] | null;
+  metricsUpdatedAt: string | null;
+  assets: { source?: string | null }[] | null;
+};
+
+async function bufferChannelServiceMap() {
   const channels = await bufferGraphQL<{
-    channels: { id: string; service: string }[];
+    channels: { id: string; service: string; name?: string | null }[];
   }>(
     `query Channels($organizationId: OrganizationId!) {
       channels(input: { organizationId: $organizationId }) {
         id
         service
+        name
       }
     }`,
     { organizationId: bufferOrgId() },
-  ).catch(() => ({ channels: [] as { id: string; service: string }[] }));
+  ).catch(() => ({ channels: [] as { id: string; service: string; name?: string | null }[] }));
 
-  const serviceById = new Map((channels.channels || []).map((row) => [row.id, row.service]));
+  return new Map((channels.channels || []).map((row) => [row.id, row]));
+}
 
+async function fetchBufferPostsPage(input: {
+  status: Array<"scheduled" | "sent" | "sending" | "error">;
+  first?: number;
+  dueAt?: { start?: string; end?: string };
+  sortDirection?: "asc" | "desc";
+}): Promise<BufferPost[]> {
+  const serviceById = await bufferChannelServiceMap();
   const data = await bufferGraphQL<{
-    posts: {
-      edges: {
-        node: {
-          id: string;
-          text: string | null;
-          sentAt: string | null;
-          dueAt: string | null;
-          channelId: string;
-          metrics: BufferMetric[] | null;
-          metricsUpdatedAt: string | null;
-          assets: { source?: string | null }[] | null;
-        };
-      }[];
-    };
+    posts: { edges: { node: BufferPostNode }[] };
   }>(
-    `query SentPosts($organizationId: OrganizationId!, $first: Int!) {
+    `query CalendarPosts(
+      $organizationId: OrganizationId!
+      $first: Int!
+      $status: [PostStatus!]
+      $dueAt: DateTimeComparator
+      $direction: SortDirection!
+    ) {
       posts(
         first: $first
         input: {
           organizationId: $organizationId
-          filter: { status: [sent] }
-          sort: [{ field: dueAt, direction: desc }]
+          filter: { status: $status, dueAt: $dueAt }
+          sort: [{ field: dueAt, direction: $direction }]
         }
       ) {
         edges {
           node {
             id
             text
+            status
             sentAt
             dueAt
             channelId
@@ -148,20 +163,131 @@ export async function fetchBufferSentPosts(limit = 50): Promise<BufferPost[]> {
         }
       }
     }`,
-    { organizationId: bufferOrgId(), first: limit },
+    {
+      organizationId: bufferOrgId(),
+      first: input.first ?? 100,
+      status: input.status,
+      dueAt: input.dueAt ?? null,
+      direction: input.sortDirection ?? "asc",
+    },
   );
 
-  return (data.posts.edges || []).map((edge) => ({
-    id: edge.node.id,
-    text: edge.node.text,
-    sentAt: edge.node.sentAt,
-    dueAt: edge.node.dueAt,
-    channelId: edge.node.channelId,
-    channelService: serviceById.get(edge.node.channelId) || "unknown",
-    metrics: edge.node.metrics,
-    metricsUpdatedAt: edge.node.metricsUpdatedAt,
-    assets: edge.node.assets,
-  }));
+  return (data.posts.edges || []).map((edge) => {
+    const channel = serviceById.get(edge.node.channelId);
+    return {
+      id: edge.node.id,
+      text: edge.node.text,
+      sentAt: edge.node.sentAt,
+      dueAt: edge.node.dueAt,
+      channelId: edge.node.channelId,
+      channelService: channel?.service || "unknown",
+      metrics: edge.node.metrics,
+      metricsUpdatedAt: edge.node.metricsUpdatedAt,
+      assets: edge.node.assets,
+    };
+  });
+}
+
+export async function fetchBufferSentPosts(limit = 50): Promise<BufferPost[]> {
+  return fetchBufferPostsPage({
+    status: ["sent"],
+    first: limit,
+    sortDirection: "desc",
+  });
+}
+
+/** Live Buffer queue for the month grid: scheduled + recently sent. */
+export async function fetchBufferCalendarPosts(month: string): Promise<BufferCalendarItem[]> {
+  if (!bufferConfigured()) return [];
+
+  const start = `${month}-01T00:00:00Z`;
+  const [year, monthNum] = month.split("-").map(Number);
+  const endDate = new Date(Date.UTC(year, monthNum, 0, 23, 59, 59));
+  const end = endDate.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+  const [scheduled, sent] = await Promise.all([
+    fetchBufferPostsPage({
+      status: ["scheduled", "sending"],
+      first: 100,
+      dueAt: { start, end },
+      sortDirection: "asc",
+    }).catch(() => [] as BufferPost[]),
+    fetchBufferPostsPage({
+      status: ["sent"],
+      first: 100,
+      dueAt: { start, end },
+      sortDirection: "desc",
+    }).catch(() => [] as BufferPost[]),
+  ]);
+
+  return groupBufferPostsForCalendar([...scheduled, ...sent]);
+}
+
+export type BufferCalendarItem = {
+  id: string;
+  content_id: string | null;
+  title: string;
+  status: "scheduled" | "posted";
+  platforms: string[];
+  scheduled_at: string | null;
+  posted_at: string | null;
+  buffer_post_ids: string[];
+};
+
+function groupBufferPostsForCalendar(posts: BufferPost[]): BufferCalendarItem[] {
+  const groups = new Map<string, BufferCalendarItem>();
+
+  for (const post of posts) {
+    const when = post.sentAt || post.dueAt;
+    if (!when) continue;
+    const code = contentCodeFromBufferPost(post);
+    const title = titleFromBufferPost(post, code);
+    const kind = post.sentAt ? "posted" : "scheduled";
+    const slot = when.slice(0, 16); // group same minute across channels
+    const key = `${kind}|${slot}|${(code || title).toUpperCase()}`;
+    const existing = groups.get(key);
+    const service = labelChannel(post.channelService);
+
+    if (existing) {
+      if (!existing.platforms.includes(service)) existing.platforms.push(service);
+      existing.buffer_post_ids.push(post.id);
+      continue;
+    }
+
+    groups.set(key, {
+      id: post.id,
+      content_id: code,
+      title,
+      status: kind,
+      platforms: [service],
+      scheduled_at: kind === "scheduled" ? post.dueAt : null,
+      posted_at: kind === "posted" ? post.sentAt || post.dueAt : null,
+      buffer_post_ids: [post.id],
+    });
+  }
+
+  return [...groups.values()].sort((a, b) => {
+    const aWhen = a.posted_at || a.scheduled_at || "";
+    const bWhen = b.posted_at || b.scheduled_at || "";
+    return aWhen.localeCompare(bWhen);
+  });
+}
+
+function titleFromBufferPost(post: BufferPost, code: string | null) {
+  const text = (post.text || "").replace(/\s+/g, " ").trim();
+  if (text) {
+    const firstLine = text.split(/\n|\r/)[0]?.trim() || text;
+    if (firstLine.length <= 90) return firstLine;
+    return `${firstLine.slice(0, 87).trimEnd()}…`;
+  }
+  return code || "Buffer post";
+}
+
+function labelChannel(service: string) {
+  if (service === "youtube") return "YouTube";
+  if (service === "instagram") return "Instagram";
+  if (service === "tiktok") return "TikTok";
+  return service;
 }
 
 export function contentCodeFromBufferPost(post: BufferPost) {

@@ -10,6 +10,8 @@ export type CalendarItem = {
   platforms?: string[] | null;
   scheduled_at?: string | null;
   posted_at?: string | null;
+  /** Hub content_queue id when matched by content code */
+  content_queue_id?: string | null;
 };
 
 type DayEvent = {
@@ -24,16 +26,19 @@ type DayEvent = {
 };
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-const ACTIONABLE = new Set(["approved", "scheduled", "posted"]);
 
 export function PostCalendar({
   items,
   month,
   query = {},
+  source = "hub",
+  configured = true,
 }: {
   items: CalendarItem[];
   month?: string;
   query?: Record<string, string>;
+  source?: "buffer" | "hub";
+  configured?: boolean;
 }) {
   const today = nyToday();
   const focus = parseMonth(month) || today.slice(0, 7);
@@ -48,20 +53,23 @@ export function PostCalendar({
 
   const byDay = new Map<string, DayEvent[]>();
   for (const item of items) {
-    if (!ACTIONABLE.has(item.status) && item.status !== "in_review") continue;
     const postedKey = item.posted_at ? nyDateKey(item.posted_at) : null;
     const scheduledKey = item.scheduled_at ? nyDateKey(item.scheduled_at) : null;
-    const href = `/content/${item.id}`;
+    const href = item.content_queue_id
+      ? `/content/${item.content_queue_id}`
+      : item.content_id
+        ? `/content?status=posted`
+        : "/content";
     const title = item.title || "Untitled";
-    const platforms = (item.platforms || []).slice(0, 2).join(", ");
+    const platforms = (item.platforms || []).slice(0, 3).join(", ");
 
-    if (postedKey && item.status === "posted") {
+    if (postedKey && (item.status === "posted" || item.status === "sent")) {
       pushEvent(byDay, postedKey, {
         id: `${item.id}-posted`,
         href,
         title,
         code: item.content_id,
-        status: item.status,
+        status: "posted",
         kind: "posted",
         when: item.posted_at!,
         platforms,
@@ -70,7 +78,7 @@ export function PostCalendar({
     if (
       scheduledKey &&
       scheduledKey !== postedKey &&
-      (item.status === "scheduled" || item.status === "approved")
+      (item.status === "scheduled" || item.status === "approved" || item.status === "sending")
     ) {
       pushEvent(byDay, scheduledKey, {
         id: `${item.id}-scheduled`,
@@ -98,28 +106,32 @@ export function PostCalendar({
     .flatMap(([, events]) => events)
     .sort((a, b) => a.when.localeCompare(b.when));
 
-  // Prefer upcoming slots; keep a couple of overdue approved/scheduled so nothing is lost.
   const nowMs = Date.now();
   const scheduledEvents = monthEvents.filter((event) => event.kind === "scheduled");
   const future = scheduledEvents.filter((event) => Date.parse(event.when) >= nowMs);
   const overdue = scheduledEvents
     .filter((event) => Date.parse(event.when) < nowMs)
     .sort((a, b) => b.when.localeCompare(a.when));
-  const upcoming = [...future, ...overdue.slice(0, Math.max(0, 6 - future.length))].slice(0, 6);
+  const upcoming = [...future, ...overdue.slice(0, Math.max(0, 8 - future.length))].slice(0, 8);
   const recentPosted = monthEvents
     .filter((event) => event.kind === "posted")
     .sort((a, b) => b.when.localeCompare(a.when))
-    .slice(0, 4);
+    .slice(0, 6);
 
   return (
     <section className="panel flex flex-col gap-4 rounded-3xl p-4 ring-1 ring-ink/10 md:p-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Calendar</p>
+          <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">
+            {source === "buffer" ? "Buffer calendar" : "Calendar"}
+          </p>
           <h2 className="font-display text-lg font-semibold tracking-tight text-ink">{label}</h2>
           <p className="text-sm text-ink-soft">
-            {monthEvents.filter((event) => event.kind === "posted").length} posted ·{" "}
-            {monthEvents.filter((event) => event.kind === "scheduled").length} scheduled
+            {!configured
+              ? "Add BUFFER_API_KEY to load the live Buffer queue."
+              : `${monthEvents.filter((event) => event.kind === "posted").length} posted · ${
+                  monthEvents.filter((event) => event.kind === "scheduled").length
+                } scheduled in Buffer`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -174,7 +186,7 @@ export function PostCalendar({
                   <Link
                     key={event.id}
                     href={event.href}
-                    title={`${event.title} · ${formatWhen(event.when)}`}
+                    title={`${event.title} · ${formatWhen(event.when)} · ${event.platforms}`}
                     className={`block truncate rounded-lg px-1.5 py-1 text-[10px] leading-tight transition hover:opacity-90 ${
                       event.kind === "posted"
                         ? "bg-signal/15 text-ink ring-1 ring-signal/25"
@@ -200,18 +212,21 @@ export function PostCalendar({
         <span className="inline-flex items-center gap-1.5">
           <span className="size-2 rounded-full bg-ember" /> Scheduled
         </span>
+        {source === "buffer" ? (
+          <span className="text-ink-soft/80">Live from Buffer · multi-channel slots grouped</span>
+        ) : null}
       </div>
 
       <div className="grid gap-4 border-t border-ink/8 pt-4 md:grid-cols-2">
         <FeedColumn
           title="Coming up"
-          empty="Nothing left to schedule this month."
+          empty={configured ? "Nothing left in the Buffer queue this month." : "Buffer not configured."}
           events={upcoming}
           badge="Scheduled"
         />
         <FeedColumn
           title="Recently posted"
-          empty="No posts logged this month yet."
+          empty={configured ? "No Buffer posts logged this month yet." : "Buffer not configured."}
           events={recentPosted}
           badge="Posted"
         />
@@ -245,7 +260,7 @@ function FeedColumn({
               <span className="min-w-0">
                 <span className="line-clamp-1 font-medium text-ink">{event.title}</span>
                 <span className="mt-0.5 block text-xs text-ink-soft">
-                  {[event.code, labelize(event.status)].filter(Boolean).join(" · ")}
+                  {[event.code, event.platforms || labelize(event.status)].filter(Boolean).join(" · ")}
                 </span>
               </span>
               <span className="shrink-0 text-xs text-ink-soft">
