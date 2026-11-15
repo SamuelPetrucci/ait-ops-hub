@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { ContentStatusSelect, ScheduleInBuffer } from "@/components/content-controls";
+import { Badge } from "@/components/ui/badge";
 import type { LiveLink } from "@/lib/content";
 import { formatWhen } from "@/lib/format";
 
@@ -17,6 +18,7 @@ export function ContentPiece({
   links,
   scheduledAt,
   suggestedTime,
+  niche,
   compact = false,
 }: {
   id: string;
@@ -32,6 +34,7 @@ export function ContentPiece({
   links?: LiveLink[];
   scheduledAt?: string | null;
   suggestedTime?: string;
+  niche?: string | null;
   compact?: boolean;
 }) {
   const context = [code, agent, (platforms || []).slice(0, 3).join(", ")].filter(Boolean).join(" · ");
@@ -74,7 +77,14 @@ export function ContentPiece({
         <div className="flex min-w-0 flex-col gap-3 p-4">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
-              {context ? <p className="truncate text-xs text-muted-foreground">{context}</p> : null}
+              <div className="flex items-center gap-2">
+                {context ? <p className="truncate text-xs text-muted-foreground">{context}</p> : null}
+                {niche ? (
+                  <Badge variant="secondary" className="shrink-0 text-[10px]">
+                    {niche}
+                  </Badge>
+                ) : null}
+              </div>
               <Link href={`/content/${id}`} className="mt-0.5 block text-base font-medium hover:underline">
                 {title}
               </Link>

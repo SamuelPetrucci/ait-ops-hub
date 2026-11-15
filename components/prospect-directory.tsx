@@ -16,6 +16,13 @@ import {
   SCOPE_STAGES,
   type ProspectScope,
 } from "@/lib/prospects";
+import {
+  getProspectGroupFromStage,
+  getProspectGroupLabel,
+  PROSPECT_GROUP_ORDER,
+  PROSPECT_STAGE_GROUPS,
+  type ProspectStageGroup,
+} from "@/lib/status-groups";
 
 const PAGE_SIZE = 40;
 
@@ -87,6 +94,7 @@ export async function ProspectDirectory({
   if (error) throw new Error(error.message);
 
   const stageCounts = new Map<string, number>();
+  const groupCounts = new Map<ProspectStageGroup, number>();
   const industryCounts = new Map<string, number>();
   const ownerCounts = new Map<string, number>();
   let dueCount = 0;
@@ -94,6 +102,8 @@ export async function ProspectDirectory({
   let scoredHot = 0;
   for (const row of facetRows ?? []) {
     stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
+    const group = getProspectGroupFromStage(row.stage);
+    groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
     if (row.industry) industryCounts.set(row.industry, (industryCounts.get(row.industry) || 0) + 1);
     if (row.deal_owner) ownerCounts.set(row.deal_owner, (ownerCounts.get(row.deal_owner) || 0) + 1);
     if (row.next_follow_up_due) {
@@ -104,6 +114,8 @@ export async function ProspectDirectory({
   }
 
   const stageOptions = allowedStages.filter((stage) => (stageCounts.get(stage) || 0) > 0 || filters.stage === stage);
+  const groupOptions = PROSPECT_GROUP_ORDER.filter((group) => (groupCounts.get(group) || 0) > 0 || filters.stageGroup === group);
+  const currentStageGroup = filters.stage ? getProspectGroupFromStage(filters.stage) : filters.stageGroup;
   const industryOptions = [...industryCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
@@ -137,30 +149,30 @@ export async function ProspectDirectory({
       <div className="flex flex-wrap gap-2">
         <QuickChip href={base} active={!hasFilters} label="All" count={facetRows?.length || 0} />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "due", stage: "", score: "" })}`}
+          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "due", stage: "", stageGroup: "", score: "" })}`}
           active={filters.followUp === "due"}
           label="Needs follow-up"
           count={dueCount}
         />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "overdue", stage: "", score: "" })}`}
+          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "overdue", stage: "", stageGroup: "", score: "" })}`}
           active={filters.followUp === "overdue"}
           label="Overdue"
           count={overdueCount}
         />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, score: "50", followUp: "", stage: "" })}`}
+          href={`${base}?${filtersToSearchParams({ ...filters, score: "50", followUp: "", stage: "", stageGroup: "" })}`}
           active={filters.score === "50"}
           label="Score 50+"
           count={scoredHot}
         />
-        {stageOptions.map((stage) => (
+        {groupOptions.map((group) => (
           <QuickChip
-            key={stage}
-            href={`${base}?${filtersToSearchParams({ ...filters, stage, followUp: "", score: "" })}`}
-            active={filters.stage === stage}
-            label={labelize(stage)}
-            count={stageCounts.get(stage) || 0}
+            key={group}
+            href={`${base}?${filtersToSearchParams({ ...filters, stageGroup: group, stage: "", followUp: "", score: "" })}`}
+            active={currentStageGroup === group && !filters.stage}
+            label={getProspectGroupLabel(group)}
+            count={groupCounts.get(group) || 0}
           />
         ))}
       </div>
@@ -191,15 +203,15 @@ export async function ProspectDirectory({
       <form method="get" action={base} className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
         <Input name="q" defaultValue={filters.q} placeholder="Search company, contact, site" aria-label="Search" />
         <select
-          name="stage"
-          defaultValue={filters.stage}
+          name="stageGroup"
+          defaultValue={filters.stageGroup || (filters.stage ? getProspectGroupFromStage(filters.stage) : "")}
           aria-label="Stage"
           className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
         >
           <option value="">All stages</option>
-          {stageOptions.map((stage) => (
-            <option key={stage} value={stage}>
-              {labelize(stage)} ({stageCounts.get(stage) || 0})
+          {groupOptions.map((group) => (
+            <option key={group} value={group}>
+              {getProspectGroupLabel(group)} ({groupCounts.get(group) || 0})
             </option>
           ))}
         </select>

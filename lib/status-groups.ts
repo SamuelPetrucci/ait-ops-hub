@@ -228,3 +228,34 @@ export function getDealGroupFromStatus(status: string): DealStageGroup {
   }
   return "research";
 }
+
+export function getCanonicalProspectStage(group: ProspectStageGroup, currentStage?: string): string {
+  const config = PROSPECT_STAGE_GROUPS[group];
+  if (currentStage && config.dbStages.includes(currentStage)) {
+    return currentStage;
+  }
+  return config.canonical;
+}
+
+export function getProspectGroupLabel(group: ProspectStageGroup): string {
+  return PROSPECT_STAGE_GROUPS[group].label;
+}
+
+export function getProspectGroupColor(group: ProspectStageGroup): string {
+  return PROSPECT_STAGE_GROUPS[group].color;
+}
+
+export function groupProspectStages(stages: string[]): Map<ProspectStageGroup, string[]> {
+  const grouped = new Map<ProspectStageGroup, string[]>();
+  for (const stage of stages) {
+    const group = getProspectGroupFromStage(stage);
+    const current = grouped.get(group) || [];
+    current.push(stage);
+    grouped.set(group, current);
+  }
+  return grouped;
+}
+
+export function getProspectGroupDbStages(group: ProspectStageGroup): string[] {
+  return PROSPECT_STAGE_GROUPS[group].dbStages;
+}

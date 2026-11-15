@@ -18,17 +18,18 @@ const STATUSES = CONTENT_COLUMNS.map(([id]) => id);
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; month?: string }>;
+  searchParams: Promise<{ status?: string; month?: string; niche?: string }>;
 }) {
   const params = await searchParams;
   const status = STATUSES.includes(params.status as (typeof STATUSES)[number]) ? params.status : "";
   const month = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : "";
+  const niche = params.niche || "";
   const { supabase } = await requireOwner();
   const [queue, performance, buffer, suggestedTime] = await Promise.all([
     supabase
       .from("content_queue")
       .select(
-        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, updated_at, created_at",
+        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, updated_at, created_at, content_pillar",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -48,7 +49,14 @@ export default async function ContentPage({
 
   const rawRows = [...(queue.data ?? [])].sort(byContentRecency);
   const statusCounts = new Map<string, number>();
-  for (const row of rawRows) statusCounts.set(row.status, (statusCounts.get(row.status) || 0) + 1);
+  const nicheCounts = new Map<string, number>();
+  for (const row of rawRows) {
+    statusCounts.set(row.status, (statusCounts.get(row.status) || 0) + 1);
+    if (row.content_pillar) {
+      nicheCounts.set(row.content_pillar, (nicheCounts.get(row.content_pillar) || 0) + 1);
+    }
+  }
+  const nicheOptions = [...nicheCounts.keys()].sort();
 
   const rows = await Promise.all(
     rawRows.map(async (row) => ({
@@ -60,8 +68,12 @@ export default async function ContentPage({
     }))
   );
 
-  const visible = status ? rows.filter((row) => row.status === status) : rows;
-  const reading = status
+  const visible = rows.filter((row) => {
+    if (status && row.status !== status) return false;
+    if (niche && row.content_pillar !== niche) return false;
+    return true;
+  });
+  const reading = status || niche
     ? visible
     : visible
         .filter((row) => row.status !== "posted" && row.status !== "skipped" && row.status !== "rejected")
@@ -97,9 +109,9 @@ export default async function ContentPage({
         <Stat label="Eng. rate" value={`${buffer.engagementRate || 0}%`} />
       </section>
 
-      <div className="flex gap-2 overflow-x-auto pb-1">
+      <div className="flex flex-wrap gap-2 pb-1">
         <Filter
-          href={month ? `/content?month=${month}` : "/content"}
+          href={buildContentUrl({ month, niche })}
           active={!status}
           label="Active"
           count={rows.filter((row) => row.status !== "posted" && row.status !== "skipped").length}
@@ -107,10 +119,26 @@ export default async function ContentPage({
         {statusFilters.map(([id, label]) => (
           <Filter
             key={id}
-            href={month ? `/content?status=${id}&month=${month}` : `/content?status=${id}`}
+            href={buildContentUrl({ status: id, month, niche })}
             active={status === id}
             label={label}
             count={statusCounts.get(id) || 0}
+          />
+        ))}
+        <span className="mx-1 border-l border-foreground/10" />
+        <Filter
+          href={buildContentUrl({ status, month })}
+          active={!niche}
+          label="All niches"
+          count={rows.length}
+        />
+        {nicheOptions.map((n) => (
+          <Filter
+            key={n}
+            href={buildContentUrl({ status, month, niche: n })}
+            active={niche === n}
+            label={n}
+            count={nicheCounts.get(n) || 0}
           />
         ))}
       </div>
@@ -118,7 +146,7 @@ export default async function ContentPage({
       <PostCalendar
         items={rows}
         month={month || undefined}
-        query={{ ...(status ? { status } : {}), ...(month ? { month } : {}) }}
+        query={{ ...(status ? { status } : {}), ...(month ? { month } : {}), ...(niche ? { niche } : {}) }}
       />
 
       <section className="flex flex-col gap-3">
@@ -134,7 +162,7 @@ export default async function ContentPage({
         </div>
         {reading.length === 0 ? <p className="text-sm text-ink-soft">Nothing in this status.</p> : null}
         <div className="flex flex-col gap-3">
-          {(status ? reading : reading.slice(0, 8)).map((row) => {
+          {(status || niche ? reading : reading.slice(0, 8)).map((row) => {
             const script = scriptParts(row.script_json, row.caption);
             return (
               <ContentPiece
@@ -152,6 +180,7 @@ export default async function ContentPage({
                 links={liveLinks(row.platform_links, row.review_notes)}
                 scheduledAt={row.scheduled_at}
                 suggestedTime={suggestedTime}
+                niche={row.content_pillar}
               />
             );
           })}
@@ -235,6 +264,15 @@ function actionRank(status: string) {
   if (status === "scheduled") return 2;
   if (status === "changes_requested") return 3;
   return 4;
+}
+
+function buildContentUrl({ status, month, niche }: { status?: string; month?: string; niche?: string }) {
+  const params = new URLSearchParams();
+  if (status) params.set("status", status);
+  if (month) params.set("month", month);
+  if (niche) params.set("niche", niche);
+  const query = params.toString();
+  return query ? `/content?${query}` : "/content";
 }
 
 function Filter({

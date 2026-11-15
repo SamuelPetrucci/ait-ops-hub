@@ -1,4 +1,5 @@
 import "server-only";
+import { getProspectGroupDbStages, type ProspectStageGroup } from "@/lib/status-groups";
 
 /** Open outreach / pipeline — not yet paying clients. */
 export const LEAD_STAGES = [
@@ -26,6 +27,7 @@ export const SCOPE_STAGES: Record<ProspectScope, readonly string[]> = {
 export type ProspectFilters = {
   q: string;
   stage: string;
+  stageGroup: string;
   industry: string;
   score: string;
   followUp: string;
@@ -41,6 +43,7 @@ export function parseProspectFilters(params: Record<string, string | string[] | 
   return {
     q: oneParam(params.q).trim(),
     stage: oneParam(params.stage).trim(),
+    stageGroup: oneParam(params.stageGroup).trim(),
     industry: oneParam(params.industry).trim(),
     score: oneParam(params.score).trim(),
     followUp: oneParam(params.followUp).trim(),
@@ -63,9 +66,18 @@ export function filtersToSearchParams(filters: ProspectFilters, page?: number) {
 export function applyProspectFilters(query: any, scope: ProspectScope, filters: ProspectFilters, today: string) {
   const allowed = SCOPE_STAGES[scope];
   const stage = filters.stage && allowed.includes(filters.stage) ? filters.stage : "";
+  const stageGroup = filters.stageGroup as ProspectStageGroup | "";
 
-  if (stage) query = query.eq("stage", stage);
-  else if (scope === "leads" && filters.includeDnc === "1") {
+  if (stage) {
+    query = query.eq("stage", stage);
+  } else if (stageGroup) {
+    const groupStages = getProspectGroupDbStages(stageGroup).filter((s) => allowed.includes(s));
+    if (groupStages.length > 0) {
+      query = query.in("stage", groupStages);
+    } else {
+      query = query.in("stage", [...allowed]);
+    }
+  } else if (scope === "leads" && filters.includeDnc === "1") {
     query = query.in("stage", [...LEAD_STAGES, "do_not_contact"]);
   } else {
     query = query.in("stage", [...allowed]);
