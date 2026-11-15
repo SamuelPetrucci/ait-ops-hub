@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useTransition } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { labelize } from "@/lib/format";
@@ -13,19 +16,25 @@ import {
   formatVisitWindow,
   OFFER,
 } from "@/lib/sales-tactics";
+import { geocodeMissingProspects } from "@/app/actions/geocode";
+import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
+import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import type { MappedProspect, ProspectMapFilters, RouteInfo, UnmappedProspect } from "@/lib/prospect-map";
 
 const ProspectMapClient = dynamic(() => import("./prospect-map-client").then((m) => m.ProspectMapClient), {
   ssr: false,
   loading: () => (
-    <div className="flex h-[600px] items-center justify-center rounded-xl bg-card ring-1 ring-foreground/10">
+    <div className="flex h-[400px] items-center justify-center rounded-xl bg-card ring-1 ring-foreground/10 sm:h-[600px]">
       <p className="text-muted-foreground">Loading map...</p>
     </div>
   ),
 });
 
-type SortKey = "company" | "miles_from_home" | "drive_minutes" | "stage";
+type SortKey = "company" | "miles_from_home" | "drive_minutes" | "stage" | "lead_score";
 type SortDir = "asc" | "desc";
+
+const HOME_LAT = 41.3501;
+const HOME_LNG = -72.0787;
 
 type ProspectMapViewProps = {
   mapped: MappedProspect[];
@@ -34,6 +43,8 @@ type ProspectMapViewProps = {
   stages: string[];
   categories: string[];
   routeIds: string[];
+  towns: string[];
+  savedRoutes: SavedRoute[];
 };
 
 export function ProspectMapView({
@@ -43,16 +54,28 @@ export function ProspectMapView({
   stages,
   categories,
   routeIds,
+  towns,
+  savedRoutes,
 }: ProspectMapViewProps) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
   const [filters, setFilters] = useState<ProspectMapFilters>({
     stage: "",
     routeId: "",
     category: "",
     maxDistance: 50,
+    town: "",
+    minScore: 0,
   });
   const [showRoutes, setShowRoutes] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("miles_from_home");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
+
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [routeName, setRouteName] = useState("");
+  const [plannerMessage, setPlannerMessage] = useState<string | null>(null);
+  const [geocodeMessage, setGeocodeMessage] = useState<string | null>(null);
 
   const handleFilterChange = (partial: Partial<ProspectMapFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
@@ -63,7 +86,9 @@ export function ProspectMapView({
       if (filters.stage && p.stage !== filters.stage) return false;
       if (filters.routeId && p.route_id !== filters.routeId) return false;
       if (filters.category && p.industry !== filters.category) return false;
+      if (filters.town && p.city !== filters.town) return false;
       if (filters.maxDistance && p.miles_from_home && p.miles_from_home > filters.maxDistance) return false;
+      if (filters.minScore && (p.lead_score ?? 0) < filters.minScore) return false;
       return true;
     });
   }, [mapped, filters]);
@@ -79,6 +104,8 @@ export function ProspectMapView({
         cmp = (a.drive_minutes ?? 999) - (b.drive_minutes ?? 999);
       } else if (sortKey === "stage") {
         cmp = a.stage.localeCompare(b.stage);
+      } else if (sortKey === "lead_score") {
+        cmp = (b.lead_score ?? 0) - (a.lead_score ?? 0);
       }
       return sortDir === "asc" ? cmp : -cmp;
     });
@@ -95,7 +122,7 @@ export function ProspectMapView({
       setSortDir((d) => (d === "asc" ? "desc" : "asc"));
     } else {
       setSortKey(key);
-      setSortDir("asc");
+      setSortDir(key === "lead_score" ? "desc" : "asc");
     }
   };
 
@@ -104,15 +131,101 @@ export function ProspectMapView({
     return sortDir === "asc" ? " ↑" : " ↓";
   };
 
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else if (next.size < 10) {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const selectedProspects = useMemo(() => {
+    return mapped.filter((p) => selectedIds.has(p.id));
+  }, [mapped, selectedIds]);
+
+  const plannedRoute = useMemo(() => {
+    if (selectedProspects.length === 0) return null;
+    const stops: RouteStop[] = selectedProspects.map((p) => ({
+      id: p.id,
+      company: p.company,
+      lat: p.lat,
+      lng: p.lng,
+      city: p.city,
+      industry: p.industry,
+    }));
+    return orderByNearestNeighbor(stops, HOME_LAT, HOME_LNG);
+  }, [selectedProspects]);
+
+  const googleMapsUrl = useMemo(() => {
+    if (!plannedRoute || plannedRoute.ordered.length === 0) return null;
+    return buildGoogleMapsUrl(plannedRoute.ordered, HOME_LAT, HOME_LNG);
+  }, [plannedRoute]);
+
+  const handleSaveRoute = async () => {
+    if (!plannedRoute || !routeName.trim()) {
+      setPlannerMessage("Enter a route name");
+      return;
+    }
+    setPlannerMessage(null);
+    startTransition(async () => {
+      const result = await saveRoute(
+        routeName.trim(),
+        plannedRoute.ordered,
+        "Groton, CT",
+        HOME_LAT,
+        HOME_LNG,
+        plannedRoute.totalKm
+      );
+      if ("error" in result) {
+        setPlannerMessage(result.error);
+      } else {
+        setPlannerMessage("Route saved!");
+        setRouteName("");
+        setSelectedIds(new Set());
+        router.refresh();
+      }
+    });
+  };
+
+  const handleDeleteRoute = async (id: string) => {
+    startTransition(async () => {
+      const result = await deleteRoute(id);
+      if (!result.success) {
+        setPlannerMessage(result.error || "Failed to delete");
+      } else {
+        router.refresh();
+      }
+    });
+  };
+
+  const handleGeocode = async () => {
+    setGeocodeMessage("Geocoding...");
+    startTransition(async () => {
+      try {
+        const result = await geocodeMissingProspects();
+        setGeocodeMessage(
+          `Done: ${result.geocoded} geocoded, ${result.skipped} skipped (no address), ${result.failed} failed`
+        );
+        router.refresh();
+      } catch (error) {
+        setGeocodeMessage(error instanceof Error ? error.message : "Geocoding failed");
+      }
+    });
+  };
+
   return (
-    <div className="flex flex-col gap-6">
-      <div className="grid gap-4 md:grid-cols-4">
+    <div className="flex flex-col gap-4 sm:gap-6">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         <div>
-          <label className="mb-1 block text-sm text-muted-foreground">Stage</label>
+          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Stage</label>
           <select
             value={filters.stage}
             onChange={(e) => handleFilterChange({ stage: e.target.value })}
-            className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+            className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
           >
             <option value="">All stages</option>
             {stages.map((s) => (
@@ -123,11 +236,41 @@ export function ProspectMapView({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm text-muted-foreground">Route</label>
+          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Niche</label>
+          <select
+            value={filters.category}
+            onChange={(e) => handleFilterChange({ category: e.target.value })}
+            className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
+          >
+            <option value="">All niches</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Town</label>
+          <select
+            value={filters.town}
+            onChange={(e) => handleFilterChange({ town: e.target.value })}
+            className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
+          >
+            <option value="">All towns</option>
+            {towns.map((t) => (
+              <option key={t} value={t}>
+                {t}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Route</label>
           <select
             value={filters.routeId}
             onChange={(e) => handleFilterChange({ routeId: e.target.value })}
-            className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
+            className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
           >
             <option value="">All routes</option>
             {routeIds.map((r) => (
@@ -138,29 +281,25 @@ export function ProspectMapView({
           </select>
         </div>
         <div>
-          <label className="mb-1 block text-sm text-muted-foreground">Category</label>
-          <select
-            value={filters.category}
-            onChange={(e) => handleFilterChange({ category: e.target.value })}
-            className="h-9 w-full rounded-lg border border-input bg-transparent px-2 text-sm"
-          >
-            <option value="">All categories</option>
-            {categories.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div>
           <Slider
-            label="Max Distance"
+            label="Max Dist"
             unit=" mi"
             min={5}
             max={100}
             step={5}
             value={filters.maxDistance}
             onChange={(e) => handleFilterChange({ maxDistance: Number(e.target.value) })}
+          />
+        </div>
+        <div>
+          <Slider
+            label="Min Score"
+            unit=""
+            min={0}
+            max={100}
+            step={10}
+            value={filters.minScore}
+            onChange={(e) => handleFilterChange({ minScore: Number(e.target.value) })}
           />
         </div>
       </div>
@@ -172,14 +311,132 @@ export function ProspectMapView({
         routes={routes}
         showRoutes={showRoutes}
         onToggleRoutes={() => setShowRoutes((v) => !v)}
+        selectedIds={selectedIds}
+        onToggleSelect={toggleSelect}
+        plannedRoute={plannedRoute?.ordered || []}
       />
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base sm:text-lg">Route Planner</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-xs sm:text-sm text-muted-foreground">
+              Select up to 10 prospects (click pins or checkboxes below) to plan a visit route.
+              They&apos;ll be ordered by nearest-neighbor from Groton, CT.
+            </p>
+
+            {selectedProspects.length > 0 && plannedRoute && (
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm">
+                  <Badge variant="outline">{plannedRoute.ordered.length} stops</Badge>
+                  <span className="text-muted-foreground">
+                    ~{(plannedRoute.totalKm * 0.621371).toFixed(1)} mi straight-line
+                  </span>
+                </div>
+                <ol className="space-y-1 text-xs sm:text-sm">
+                  {plannedRoute.ordered.map((stop, idx) => (
+                    <li key={stop.id} className="flex items-center gap-2">
+                      <span className="w-5 text-muted-foreground">{idx + 1}.</span>
+                      <Link href={`/companies/${stop.id}`} className="hover:underline truncate">
+                        {stop.company}
+                      </Link>
+                      <span className="text-muted-foreground ml-auto shrink-0">{stop.city}</span>
+                    </li>
+                  ))}
+                </ol>
+
+                <div className="flex flex-wrap gap-2">
+                  {googleMapsUrl && (
+                    <Button size="sm" variant="outline" asChild>
+                      <a href={googleMapsUrl} target="_blank" rel="noreferrer">
+                        Open in Google Maps
+                      </a>
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setSelectedIds(new Set())}
+                  >
+                    Clear
+                  </Button>
+                </div>
+
+                <div className="flex flex-col gap-2 pt-2 border-t border-border sm:flex-row">
+                  <Input
+                    placeholder="Route name"
+                    value={routeName}
+                    onChange={(e) => setRouteName(e.target.value)}
+                    className="h-8 text-sm flex-1"
+                  />
+                  <Button size="sm" onClick={handleSaveRoute} disabled={isPending}>
+                    Save Route
+                  </Button>
+                </div>
+                {plannerMessage && (
+                  <p className="text-xs text-muted-foreground">{plannerMessage}</p>
+                )}
+              </div>
+            )}
+
+            {selectedProspects.length === 0 && (
+              <p className="text-xs sm:text-sm text-muted-foreground italic">
+                No prospects selected yet.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base sm:text-lg">Saved Routes</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {savedRoutes.length === 0 ? (
+              <p className="text-xs sm:text-sm text-muted-foreground">No saved routes yet.</p>
+            ) : (
+              savedRoutes.map((route) => (
+                <div key={route.id} className="flex items-center justify-between gap-2 rounded-lg bg-muted/50 p-2">
+                  <div className="min-w-0">
+                    <p className="font-medium text-sm truncate">{route.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {route.stops.length} stops · ~{((route.total_distance_km ?? 0) * 0.621371).toFixed(1)} mi
+                    </p>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <Button size="sm" variant="outline" asChild>
+                      <a
+                        href={buildGoogleMapsUrl(route.stops, route.start_lat, route.start_lng)}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Go
+                      </a>
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => handleDeleteRoute(route.id)}
+                      disabled={isPending}
+                    >
+                      ×
+                    </Button>
+                  </div>
+                </div>
+              ))
+            )}
+          </CardContent>
+        </Card>
+      </div>
 
       {filteredRoutes.length > 0 && (
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
           {filteredRoutes.map((route) => (
             <Card key={route.id}>
               <CardHeader className="pb-3">
-                <CardTitle className="flex items-center justify-between">
+                <CardTitle className="flex items-center justify-between text-base">
                   <span>Route: {route.id}</span>
                   <Badge variant="outline">
                     {route.stops.length} stop{route.stops.length !== 1 ? "s" : ""}
@@ -187,7 +444,7 @@ export function ProspectMapView({
                 </CardTitle>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="grid grid-cols-2 gap-2 text-sm">
+                <div className="grid grid-cols-2 gap-2 text-xs sm:text-sm">
                   <div>
                     <span className="text-muted-foreground">Total Distance:</span>
                     <span className="ml-1 font-medium">{route.totalMiles.toFixed(1)} mi</span>
@@ -200,11 +457,11 @@ export function ProspectMapView({
 
                 <div className="space-y-2">
                   <h4 className="text-sm font-medium">Stops (in visit order):</h4>
-                  <ol className="space-y-2 text-sm">
+                  <ol className="space-y-2 text-xs sm:text-sm">
                     {route.stops.map((stop, idx) => (
                       <li key={stop.id} className="rounded-lg bg-muted/50 p-2">
                         <div className="flex items-start justify-between gap-2">
-                          <div>
+                          <div className="min-w-0">
                             <span className="mr-2 text-muted-foreground">{idx + 1}.</span>
                             <Link href={`/companies/${stop.id}`} className="font-medium hover:underline">
                               {stop.company}
@@ -214,7 +471,7 @@ export function ProspectMapView({
                             </Badge>
                           </div>
                           <span className="shrink-0 text-xs text-muted-foreground">
-                            {stop.miles_from_home?.toFixed(1)} mi · {stop.drive_minutes?.toFixed(0)} min
+                            {stop.miles_from_home?.toFixed(1)} mi
                           </span>
                         </div>
                         <p className="mt-1 text-xs text-muted-foreground">
@@ -256,21 +513,57 @@ export function ProspectMapView({
         </div>
       )}
 
+      {unmapped.length > 0 && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="flex items-center justify-between text-base sm:text-lg">
+              <span>Needs Address ({unmapped.length})</span>
+              <Button size="sm" variant="outline" onClick={handleGeocode} disabled={isPending}>
+                Geocode Missing
+              </Button>
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {geocodeMessage && (
+              <p className="mb-3 text-xs sm:text-sm text-muted-foreground">{geocodeMessage}</p>
+            )}
+            <div className="flex flex-wrap gap-2">
+              {unmapped.slice(0, 20).map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/companies/${p.id}`}
+                  className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs hover:bg-muted/80"
+                >
+                  {p.company}
+                  {p.city && <span className="text-muted-foreground">({p.city})</span>}
+                </Link>
+              ))}
+              {unmapped.length > 20 && (
+                <span className="text-xs text-muted-foreground">+{unmapped.length - 20} more</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardHeader>
-          <CardTitle>All Prospects by Distance</CardTitle>
+          <CardTitle className="text-base sm:text-lg">All Prospects by Distance</CardTitle>
         </CardHeader>
-        <CardContent>
+        <CardContent className="overflow-x-auto">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <span className="sr-only">Select</span>
+                </TableHead>
                 <TableHead
                   className="cursor-pointer hover:text-foreground"
                   onClick={() => handleSort("company")}
                 >
                   Company{sortIndicator("company")}
                 </TableHead>
-                <TableHead>Category</TableHead>
+                <TableHead className="hidden sm:table-cell">Niche</TableHead>
                 <TableHead
                   className="cursor-pointer hover:text-foreground"
                   onClick={() => handleSort("stage")}
@@ -278,30 +571,39 @@ export function ProspectMapView({
                   Stage{sortIndicator("stage")}
                 </TableHead>
                 <TableHead
-                  className="cursor-pointer text-right hover:text-foreground"
-                  onClick={() => handleSort("miles_from_home")}
+                  className="cursor-pointer text-right hover:text-foreground hidden sm:table-cell"
+                  onClick={() => handleSort("lead_score")}
                 >
-                  Distance{sortIndicator("miles_from_home")}
+                  Score{sortIndicator("lead_score")}
                 </TableHead>
                 <TableHead
                   className="cursor-pointer text-right hover:text-foreground"
-                  onClick={() => handleSort("drive_minutes")}
+                  onClick={() => handleSort("miles_from_home")}
                 >
-                  Drive Time{sortIndicator("drive_minutes")}
+                  Dist{sortIndicator("miles_from_home")}
                 </TableHead>
-                <TableHead>Route</TableHead>
+                <TableHead className="hidden md:table-cell">Route</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sortedProspects.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center text-muted-foreground">
+                  <TableCell colSpan={7} className="text-center text-muted-foreground">
                     No prospects match the current filters.
                   </TableCell>
                 </TableRow>
               ) : (
                 sortedProspects.map((p) => (
-                  <TableRow key={p.id}>
+                  <TableRow key={p.id} className={selectedIds.has(p.id) ? "bg-primary/10" : ""}>
+                    <TableCell>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelect(p.id)}
+                        disabled={!selectedIds.has(p.id) && selectedIds.size >= 10}
+                        className="h-4 w-4 rounded border-input"
+                      />
+                    </TableCell>
                     <TableCell>
                       <Link href={`/companies/${p.id}`} className="font-medium hover:underline">
                         {p.company}
@@ -310,17 +612,17 @@ export function ProspectMapView({
                         {[p.city, p.region].filter(Boolean).join(", ")}
                       </p>
                     </TableCell>
-                    <TableCell>{p.industry || "—"}</TableCell>
+                    <TableCell className="hidden sm:table-cell">{p.industry || "—"}</TableCell>
                     <TableCell>
-                      <Badge variant="outline">{labelize(p.stage)}</Badge>
+                      <Badge variant="outline" className="text-xs">{labelize(p.stage)}</Badge>
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums hidden sm:table-cell">
+                      {p.lead_score ?? "—"}
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {p.miles_from_home?.toFixed(1) ?? "—"} mi
                     </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {p.drive_minutes?.toFixed(0) ?? "—"} min
-                    </TableCell>
-                    <TableCell>{p.route_id || "—"}</TableCell>
+                    <TableCell className="hidden md:table-cell">{p.route_id || "—"}</TableCell>
                   </TableRow>
                 ))
               )}
