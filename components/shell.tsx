@@ -83,7 +83,7 @@ export function Shell({
                   );
                 })}
               </nav>
-              <div className="mt-auto border-t border-ink/10 p-3">
+              <div className="mt-auto border-t border-ink/10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                 <Link
                   href="/profile"
                   onClick={() => setMobileMenuOpen(false)}
@@ -151,7 +151,7 @@ export function Shell({
           })}
         </nav>
       </header>
-      <main className="relative flex w-full flex-col gap-4 px-3 py-4 sm:gap-5 sm:py-5 md:gap-6 md:px-5 md:py-7">
+      <main className="relative flex w-full flex-col gap-4 px-3 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-5 sm:py-5 sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:gap-6 md:px-5 md:py-7 md:pb-[calc(1.75rem+env(safe-area-inset-bottom))]">
         <div className="relative mx-auto flex w-full max-w-7xl flex-col gap-4 sm:gap-5 md:gap-6">{children}</div>
       </main>
     </div>
