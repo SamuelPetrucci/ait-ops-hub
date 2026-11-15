@@ -344,6 +344,94 @@ export async function createBufferScheduledPost(input: CreateBufferPostInput) {
   return result.post;
 }
 
+export type StoredBufferPost = {
+  id: string;
+  channel: string;
+  dueAt?: string | null;
+};
+
+/** Buffer post ids live under platform_links.buffer_posts (jsonb object). */
+export function readStoredBufferPosts(platformLinks: unknown): StoredBufferPost[] {
+  if (!platformLinks || typeof platformLinks !== "object" || Array.isArray(platformLinks)) {
+    return [];
+  }
+  const raw = (platformLinks as Record<string, unknown>).buffer_posts;
+  if (!Array.isArray(raw)) return [];
+  const out: StoredBufferPost[] = [];
+  for (const entry of raw) {
+    if (!entry || typeof entry !== "object") continue;
+    const row = entry as Record<string, unknown>;
+    const id = typeof row.id === "string" ? row.id.trim() : "";
+    if (!id) continue;
+    out.push({
+      id,
+      channel: typeof row.channel === "string" ? row.channel : "unknown",
+      dueAt: typeof row.dueAt === "string" ? row.dueAt : null,
+    });
+  }
+  return out;
+}
+
+export function mergePlatformLinks(
+  existing: unknown,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const base =
+    existing && typeof existing === "object" && !Array.isArray(existing)
+      ? { ...(existing as Record<string, unknown>) }
+      : {};
+  return { ...base, ...patch };
+}
+
+export function clearStoredBufferPosts(platformLinks: unknown): Record<string, unknown> {
+  const next = mergePlatformLinks(platformLinks, {});
+  delete next.buffer_posts;
+  return next;
+}
+
+export async function deleteBufferPost(postId: string) {
+  const token = bufferPublishToken();
+  if (!token) throw new Error("Set BUFFER_API_KEY on the server (Buffer → Settings → API).");
+
+  const response = await fetch("https://api.buffer.com", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      query: `mutation DeletePost($input: DeletePostInput!) {
+        deletePost(input: $input) {
+          ... on DeletePostSuccess { id }
+          ... on VoidMutationError { message }
+        }
+      }`,
+      variables: { input: { id: postId } },
+    }),
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    throw new Error(`Buffer API ${response.status}`);
+  }
+
+  const payload = (await response.json()) as {
+    data?: { deletePost?: { id?: string; message?: string } };
+    errors?: { message: string }[];
+  };
+
+  if (payload.errors?.length) {
+    throw new Error(payload.errors.map((e) => e.message).join("; "));
+  }
+  if (payload.data?.deletePost?.message) {
+    throw new Error(payload.data.deletePost.message);
+  }
+  if (!payload.data?.deletePost?.id) {
+    throw new Error("Buffer did not confirm post deletion.");
+  }
+  return payload.data.deletePost.id;
+}
+
 function metadataForChannel(channelKey: string, youtubeTitle?: string) {
   if (channelKey === "instagram") {
     return {

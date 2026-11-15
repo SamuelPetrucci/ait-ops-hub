@@ -435,6 +435,119 @@ async function writeBufferPostRows(posts: BufferPost[], today: string) {
   return rows.length;
 }
 
+/** Flip scheduled content_queue rows to posted once Buffer shows them as sent. */
+async function markContentPostedFromBuffer(posts: BufferPost[]) {
+  const supabase = createAdmin();
+  const byCode = new Map<string, { postedAt: string; postIds: string[] }>();
+
+  for (const post of posts) {
+    if (!post.sentAt) continue;
+    const code = contentCodeFromBufferPost(post);
+    if (!code) continue;
+    const key = code.toUpperCase();
+    const existing = byCode.get(key);
+    if (existing) {
+      existing.postIds.push(post.id);
+      if (post.sentAt < existing.postedAt) existing.postedAt = post.sentAt;
+    } else {
+      byCode.set(key, { postedAt: post.sentAt, postIds: [post.id] });
+    }
+  }
+
+  if (byCode.size === 0) return 0;
+
+  const { data: rows, error } = await supabase
+    .from("content_queue")
+    .select("id, content_id, status, scheduled_at, posted_at, platform_links")
+    .in("content_id", [...byCode.keys()])
+    .in("status", ["scheduled", "approved"]);
+  if (error) throw new Error(error.message);
+
+  let updated = 0;
+  for (const row of rows || []) {
+    const code = String(row.content_id || "").toUpperCase();
+    const hit = byCode.get(code);
+    if (!hit) continue;
+
+    const { clearStoredBufferPosts, mergePlatformLinks, readStoredBufferPosts } = await import(
+      "@/lib/buffer-publish"
+    );
+    const stored = readStoredBufferPosts(row.platform_links);
+    const platformLinks = mergePlatformLinks(clearStoredBufferPosts(row.platform_links), {
+      buffer_sent: {
+        posted_at: hit.postedAt,
+        post_ids: hit.postIds,
+        previous_scheduled_ids: stored.map((p) => p.id),
+        synced_at: new Date().toISOString(),
+      },
+    });
+
+    const { error: updateError } = await supabase
+      .from("content_queue")
+      .update({
+        status: "posted",
+        posted_at: row.posted_at || hit.postedAt,
+        // Keep the original scheduled slot when present; otherwise use Buffer sent time.
+        scheduled_at: row.scheduled_at || hit.postedAt,
+        platform_links: platformLinks,
+      })
+      .eq("id", row.id);
+    if (updateError) throw new Error(updateError.message);
+    updated += 1;
+  }
+
+  return updated;
+}
+
+/** Cancel Buffer scheduled posts for a content row (by stored ids and/or content code). */
+export async function cancelBufferPostsForContent(input: {
+  contentCode?: string | null;
+  platformLinks?: unknown;
+}) {
+  const { deleteBufferPost, readStoredBufferPosts } = await import("@/lib/buffer-publish");
+  const ids = new Set(readStoredBufferPosts(input.platformLinks).map((p) => p.id));
+
+  const code = (input.contentCode || "").trim().toUpperCase();
+  if (code && bufferConfigured()) {
+    const scheduled = await fetchBufferPostsPage({
+      status: ["scheduled", "sending"],
+      first: 100,
+      sortDirection: "asc",
+    }).catch(() => [] as BufferPost[]);
+    for (const post of scheduled) {
+      const postCode = contentCodeFromBufferPost(post);
+      if (postCode && postCode.toUpperCase() === code) ids.add(post.id);
+    }
+  }
+
+  const deleted: string[] = [];
+  const errors: string[] = [];
+  for (const id of ids) {
+    try {
+      await deleteBufferPost(id);
+      deleted.push(id);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : "Delete failed";
+      // Already gone / already sent — treat as canceled for ops purposes
+      if (/not found|not deletable|already/i.test(msg)) {
+        deleted.push(id);
+      } else {
+        errors.push(`${id}: ${msg}`);
+      }
+    }
+  }
+
+  return { deleted, errors, attempted: [...ids] };
+}
+
+/** Lightweight: mark ops-center rows posted when Buffer has already sent them. */
+export async function syncContentPostedFromBuffer() {
+  if (!bufferConfigured()) return { markedPosted: 0 };
+  const posts = await fetchBufferSentPosts(80);
+  const markedPosted = await markContentPostedFromBuffer(posts);
+  return { markedPosted };
+}
+
 export async function syncBufferAnalytics() {
   const aggregate = await fetchBufferAggregate(30);
   const posts = await fetchBufferSentPosts(80);
@@ -450,10 +563,12 @@ export async function syncBufferAnalytics() {
     syncedAt,
   });
   const upserted = await writeBufferPostRows(posts, today);
+  const markedPosted = await markContentPostedFromBuffer(posts);
 
   return {
     posts: posts.length,
     upserted,
+    markedPosted,
     metrics: metricsMap,
     metricsUpdatedAt: aggregate.metricsUpdatedAt,
   };

@@ -147,20 +147,25 @@ export default async function OverviewPage() {
           ) : (
             <ul className="flex flex-col gap-2">
               {dueRows.map((row) => (
-                <li key={row.id}>
-                  <Link
-                    href={`/companies/${row.id}`}
-                    className="flex items-center justify-between gap-3 rounded-2xl bg-background/35 px-3.5 py-3 transition hover:bg-background/55"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">{row.company}</span>
-                      <span className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
-                        <SiteLink website={row.website} />
-                        <span>{row.industry || "Lead"}</span>
-                      </span>
+                <li
+                  key={row.id}
+                  className="flex items-center justify-between gap-3 rounded-2xl bg-background/35 px-3.5 py-3 transition hover:bg-background/55"
+                >
+                  <span className="min-w-0">
+                    <Link
+                      href={`/companies/${row.id}`}
+                      className="block truncate text-sm font-medium hover:underline"
+                    >
+                      {row.company}
+                    </Link>
+                    <span className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
+                      <SiteLink website={row.website} />
+                      <span>{row.industry || "Lead"}</span>
                     </span>
-                    <span className="shrink-0 text-xs text-amber-300/90">{formatWhen(row.next_follow_up_due)}</span>
-                  </Link>
+                  </span>
+                  <span className="shrink-0 text-xs text-amber-300/90">
+                    {formatWhen(row.next_follow_up_due)}
+                  </span>
                 </li>
               ))}
             </ul>

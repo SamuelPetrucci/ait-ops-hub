@@ -351,14 +351,51 @@ export async function reviewContent(formData: FormData) {
   const id = text(formData, "id");
   const decision = text(formData, "decision");
   const notes = text(formData, "review_notes");
-  await stampReview("content_queue", id, decision, notes);
-  refresh(["/approvals", "/content"]);
+
+  let reviewNotes = notes;
+  if (decision === "skipped" || decision === "rejected") {
+    const cancel = await cancelContentInBuffer(id);
+    const bits = [
+      notes || null,
+      cancel.deleted.length ? `Canceled in Buffer (${cancel.deleted.length})` : null,
+      cancel.errors.length ? `Buffer cancel errors: ${cancel.errors.join(" | ")}` : null,
+    ].filter(Boolean);
+    reviewNotes = bits.join(" · ");
+  }
+
+  await stampReview("content_queue", id, decision, reviewNotes);
+  refresh(["/approvals", "/content", "/"]);
 }
 
 export async function moveContent(id: string, status: string) {
   const { supabase } = await requireOwner();
-  const patch: { status: string; posted_at?: string | null } = { status };
-  if (status === "posted") patch.posted_at = new Date().toISOString();
+  const patch: {
+    status: string;
+    posted_at?: string | null;
+    scheduled_at?: string | null;
+    platform_links?: Record<string, unknown>;
+    review_notes?: string | null;
+  } = { status };
+
+  if (status === "posted") {
+    patch.posted_at = new Date().toISOString();
+  }
+
+  if (status === "skipped" || status === "rejected") {
+    const cancel = await cancelContentInBuffer(id);
+    const { clearStoredBufferPosts } = await import("@/lib/buffer-publish");
+    patch.scheduled_at = null;
+    patch.platform_links = clearStoredBufferPosts(cancel.platformLinks);
+    if (cancel.deleted.length || cancel.errors.length) {
+      patch.review_notes = [
+        cancel.deleted.length ? `Canceled in Buffer (${cancel.deleted.length})` : null,
+        cancel.errors.length ? `Buffer cancel errors: ${cancel.errors.join(" | ")}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+  }
+
   const { data, error } = await supabase
     .from("content_queue")
     .update(patch)
@@ -370,9 +407,50 @@ export async function moveContent(id: string, status: string) {
     entityType: "content",
     entityId: id,
     action: "status_change",
-    details: { status, title: data.title, posted: false },
+    details: { status, title: data.title, posted: status === "posted" },
   });
-  refresh(["/content", "/approvals"]);
+  refresh(["/content", "/approvals", "/"]);
+}
+
+async function cancelContentInBuffer(id: string) {
+  const { supabase } = await requireOwner();
+  const { data: row } = await supabase
+    .from("content_queue")
+    .select("id, content_id, platform_links, scheduled_at")
+    .eq("id", id)
+    .maybeSingle();
+  if (!row) {
+    return { deleted: [] as string[], errors: [] as string[], platformLinks: null as unknown };
+  }
+
+  const { cancelBufferPostsForContent } = await import("@/lib/buffer");
+  const { clearStoredBufferPosts } = await import("@/lib/buffer-publish");
+  const result = await cancelBufferPostsForContent({
+    contentCode: row.content_id,
+    platformLinks: row.platform_links,
+  });
+
+  const platformLinks = clearStoredBufferPosts(row.platform_links);
+  await supabase
+    .from("content_queue")
+    .update({
+      scheduled_at: null,
+      platform_links: platformLinks,
+    })
+    .eq("id", id);
+
+  await logActivity(supabase, {
+    entityType: "content",
+    entityId: id,
+    action: "buffer_canceled",
+    details: {
+      deleted: result.deleted,
+      errors: result.errors.length ? result.errors : undefined,
+      content_id: row.content_id,
+    },
+  });
+
+  return { deleted: result.deleted, errors: result.errors, platformLinks };
 }
 
 export async function scheduleToBuffer(formData: FormData) {
@@ -409,7 +487,7 @@ export async function scheduleToBuffer(formData: FormData) {
 
   const { data: row, error: rowError } = await supabase
     .from("content_queue")
-    .select("id, content_id, title, caption, script_json, video_url, storage_path")
+    .select("id, content_id, title, caption, script_json, video_url, storage_path, platform_links")
     .eq("id", id)
     .maybeSingle();
   if (rowError || !row) throw new Error(rowError?.message || "Content not found");
@@ -434,14 +512,23 @@ export async function scheduleToBuffer(formData: FormData) {
     throw new Error("Add a caption/description before scheduling — posts cannot go out blank.");
   }
 
+  const { clearStoredBufferPosts, mergePlatformLinks } = await import("@/lib/buffer-publish");
+  // Replace any previous Buffer schedule for this piece before creating new posts.
+  const { cancelBufferPostsForContent } = await import("@/lib/buffer");
+  await cancelBufferPostsForContent({
+    contentCode: row.content_id,
+    platformLinks: row.platform_links,
+  });
+
   const dueAt = nyLocalInputToDueAt(scheduledAt);
   const ytTitle = truncateYoutubeTitle(youtubeTitle || script.hook || row.title || row.content_id || "Viral Digest");
   const errors: string[] = [];
   const successes: string[] = [];
+  const bufferPosts: { id: string; channel: string; dueAt?: string | null }[] = [];
 
   for (const channel of resolved) {
     try {
-      await createBufferScheduledPost({
+      const created = await createBufferScheduledPost({
         channelId: channel.id,
         channelKey: channel.key,
         text: description,
@@ -450,6 +537,11 @@ export async function scheduleToBuffer(formData: FormData) {
         youtubeTitle: ytTitle,
       });
       successes.push(channel.key);
+      bufferPosts.push({
+        id: created.id,
+        channel: channel.key,
+        dueAt: created.dueAt || dueAt,
+      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error";
       errors.push(`${channel.key}: ${msg}`);
@@ -461,12 +553,18 @@ export async function scheduleToBuffer(formData: FormData) {
     throw new Error(`Failed to schedule: ${errors.join("; ")}`);
   }
 
+  const platformLinks = mergePlatformLinks(clearStoredBufferPosts(row.platform_links), {
+    buffer_posts: bufferPosts,
+  });
+
   const { error: updateError } = await supabase
     .from("content_queue")
     .update({
       status: "scheduled",
       scheduled_at: dueAt,
+      posted_at: null,
       caption: description,
+      platform_links: platformLinks,
       ...(errors.length
         ? {
             review_notes: `Buffer partial: ok=${successes.join(",")} fail=${errors.join(" | ")}`,
@@ -484,6 +582,7 @@ export async function scheduleToBuffer(formData: FormData) {
     details: {
       scheduled_at: dueAt,
       channels: successes,
+      buffer_post_ids: bufferPosts.map((p) => p.id),
       description_chars: description.length,
       youtube_title: ytTitle,
       errors: errors.length > 0 ? errors : undefined,

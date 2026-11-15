@@ -5,7 +5,12 @@ import { NicheFilterSelect } from "@/components/content-filters";
 import { ContentPiece } from "@/components/content-piece";
 import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
-import { bufferConfigured, fetchBufferCalendarPosts, readBufferTotals } from "@/lib/buffer";
+import {
+  bufferConfigured,
+  fetchBufferCalendarPosts,
+  readBufferTotals,
+  syncContentPostedFromBuffer,
+} from "@/lib/buffer";
 import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { formatWhen, nestedString, nyToday } from "@/lib/format";
 import {
@@ -35,6 +40,8 @@ export default async function ContentPage({
     params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : nyToday().slice(0, 7);
   const niche = params.niche || "";
   const { supabase } = await requireOwner();
+  // Pull Buffer "sent" into content_queue as posted before we render the desk.
+  await syncContentPostedFromBuffer().catch(() => ({ markedPosted: 0 }));
   const [queue, performance, buffer, suggestedTime, bufferCalendar] = await Promise.all([
     supabase
       .from("content_queue")

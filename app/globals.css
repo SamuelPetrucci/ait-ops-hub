@@ -279,3 +279,24 @@
     linear-gradient(120deg, rgba(24, 184, 148, 0.14), transparent 40%),
     linear-gradient(300deg, rgba(217, 119, 58, 0.12), transparent 45%);
 }
+
+/* Leaflet divIcon markers — kill default white square so SVG pins show */
+.leaflet-div-icon.prospect-marker,
+.leaflet-div-icon.home-marker,
+.leaflet-div-icon.search-pin-marker {
+  background: transparent !important;
+  border: none !important;
+}
+
+.leaflet-container {
+  font: inherit;
+  z-index: 0;
+}
+
+.leaflet-popup-content-wrapper {
+  border-radius: 12px;
+}
+
+.leaflet-popup-content {
+  margin: 10px 12px;
+}
