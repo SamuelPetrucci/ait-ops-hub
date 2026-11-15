@@ -19,7 +19,7 @@ import { companyOf } from "@/lib/format";
 
 type Hit = { href: string; label: string; hint: string };
 
-export function CommandPalette({ variant = "button" }: { variant?: "button" | "bar" }) {
+export function CommandPalette({ variant = "button" }: { variant?: "button" | "bar" | "icon" }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -87,6 +87,15 @@ export function CommandPalette({ variant = "button" }: { variant?: "button" | "b
           <kbd className="hidden rounded-md border border-white/15 px-1.5 py-0.5 text-[10px] text-white/45 sm:inline">
             Ctrl K
           </kbd>
+        </button>
+      ) : variant === "icon" ? (
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="flex size-9 items-center justify-center rounded-lg text-ink-soft hover:bg-ink/5 hover:text-ink"
+          aria-label="Search"
+        >
+          <Search className="size-5" />
         </button>
       ) : (
         <>

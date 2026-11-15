@@ -13,9 +13,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CONTENT_COLUMNS } from "@/lib/constants";
-
-const STATUS_OPTIONS = CONTENT_COLUMNS.map(([value, label]) => ({ value, label }));
+import {
+  CONTENT_STATUS_GROUPS,
+  CONTENT_GROUP_ORDER,
+  getContentGroupFromStatus,
+  getCanonicalStatus,
+  type ContentStatusGroup,
+} from "@/lib/status-groups";
 
 export function ContentStatusSelect({
   id,
@@ -27,11 +31,13 @@ export function ContentStatusSelect({
   size?: "sm" | "default";
 }) {
   const [isPending, startTransition] = useTransition();
-  const [status, setStatus] = useState(currentStatus);
+  const currentGroup = getContentGroupFromStatus(currentStatus);
+  const [selectedGroup, setSelectedGroup] = useState<ContentStatusGroup>(currentGroup);
 
-  function handleChange(newStatus: string) {
-    if (newStatus === status) return;
-    setStatus(newStatus);
+  function handleChange(newGroup: ContentStatusGroup) {
+    if (newGroup === selectedGroup) return;
+    const newStatus = getCanonicalStatus(newGroup, currentStatus);
+    setSelectedGroup(newGroup);
     startTransition(async () => {
       try {
         if (newStatus === "approved" || newStatus === "skipped") {
@@ -43,21 +49,21 @@ export function ContentStatusSelect({
           await moveContent(id, newStatus);
         }
       } catch (error) {
-        setStatus(currentStatus);
+        setSelectedGroup(currentGroup);
         console.error("Failed to update status:", error);
       }
     });
   }
 
   return (
-    <Select value={status} onValueChange={handleChange} disabled={isPending}>
-      <SelectTrigger size={size} className="min-w-28 capitalize">
+    <Select value={selectedGroup} onValueChange={(v) => handleChange(v as ContentStatusGroup)} disabled={isPending}>
+      <SelectTrigger size={size} className="min-w-28">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
-        {STATUS_OPTIONS.map((opt) => (
-          <SelectItem key={opt.value} value={opt.value} className="capitalize">
-            {opt.label}
+        {CONTENT_GROUP_ORDER.map((group) => (
+          <SelectItem key={group} value={group}>
+            {CONTENT_STATUS_GROUPS[group].label}
           </SelectItem>
         ))}
       </SelectContent>
