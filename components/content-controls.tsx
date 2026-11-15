@@ -5,6 +5,7 @@ import { moveContent, reviewContent, scheduleToBuffer } from "@/app/actions/muta
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -65,9 +66,9 @@ export function ContentStatusSelect({
 }
 
 const CHANNEL_OPTIONS = [
-  { id: "youtube_viral_digests", label: "YouTube Viral Digests", required: true },
-  { id: "instagram", label: "Instagram", required: true },
-  { id: "youtube_johnny_snow", label: "YouTube Johnny Snow", required: false },
+  { id: "youtube_viral_digests", label: "YouTube Viral Digests" },
+  { id: "instagram", label: "Instagram" },
+  { id: "youtube_johnny_snow", label: "YouTube Johnny Snow" },
 ];
 
 export function ScheduleInBuffer({
@@ -87,24 +88,31 @@ export function ScheduleInBuffer({
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [scheduledAt, setScheduledAt] = useState(suggestedTime);
-  const [selectedChannels, setSelectedChannels] = useState<string[]>(["youtube_viral_digests", "instagram"]);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>([
+    "youtube_viral_digests",
+    "instagram",
+  ]);
+  const [description, setDescription] = useState(() => (caption || hook || "").trim());
   const [youtubeTitle, setYoutubeTitle] = useState(() => {
-    const truncated = hook.slice(0, 67);
-    return truncated.length < hook.length ? `${truncated}...` : truncated;
+    const source = (hook || caption || "").replace(/\s+/g, " ").trim();
+    if (source.length <= 70) return source;
+    return `${source.slice(0, 69).trimEnd()}…`;
   });
 
   function toggleChannel(channelId: string) {
     setSelectedChannels((prev) =>
-      prev.includes(channelId)
-        ? prev.filter((c) => c !== channelId)
-        : [...prev, channelId]
+      prev.includes(channelId) ? prev.filter((c) => c !== channelId) : [...prev, channelId],
     );
   }
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!videoUrl) {
-      setError("No video URL available for this content");
+      setError("No public video URL available for this content");
+      return;
+    }
+    if (!description.trim()) {
+      setError("Add a description/caption before scheduling");
       return;
     }
     setError(null);
@@ -115,11 +123,9 @@ export function ScheduleInBuffer({
         formData.set("id", id);
         formData.set("scheduled_at", scheduledAt);
         formData.set("video_url", videoUrl);
-        formData.set("caption", caption);
-        formData.set("youtube_title", youtubeTitle);
-        for (const ch of selectedChannels) {
-          formData.append("channels", ch);
-        }
+        formData.set("caption", description.trim());
+        formData.set("youtube_title", youtubeTitle.trim());
+        for (const ch of selectedChannels) formData.append("channels", ch);
         await scheduleToBuffer(formData);
         setIsOpen(false);
       } catch (err) {
@@ -136,24 +142,9 @@ export function ScheduleInBuffer({
         onClick={() => setIsOpen(true)}
         disabled={!videoUrl}
         className="gap-1.5"
+        title={videoUrl ? `Suggested: ${suggestedTime}` : "Needs a public video URL"}
       >
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <rect width="18" height="18" x="3" y="4" rx="2" ry="2" />
-          <line x1="16" x2="16" y1="2" y2="6" />
-          <line x1="8" x2="8" y1="2" y2="6" />
-          <line x1="3" x2="21" y1="10" y2="10" />
-        </svg>
-        Schedule in Buffer
+        Schedule · {suggestedTime.replace("T", " ")}
       </Button>
     );
   }
@@ -162,7 +153,12 @@ export function ScheduleInBuffer({
     <div className="rounded-xl bg-card/80 p-4 ring-1 ring-foreground/10">
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-medium">Schedule in Buffer</h3>
+          <div>
+            <h3 className="text-sm font-medium">Schedule in Buffer</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Suggested slot from your Buffer posting schedule (America/New_York).
+            </p>
+          </div>
           <button
             type="button"
             onClick={() => setIsOpen(false)}
@@ -173,15 +169,13 @@ export function ScheduleInBuffer({
         </div>
 
         {error ? (
-          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-            {error}
-          </div>
+          <div className="rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>
         ) : null}
 
         <div className="grid gap-3">
           <div>
             <Label htmlFor={`schedule-time-${id}`} className="text-xs">
-              Schedule time (America/New_York)
+              Post time (America/New_York)
             </Label>
             <Input
               id={`schedule-time-${id}`}
@@ -189,7 +183,23 @@ export function ScheduleInBuffer({
               value={scheduledAt}
               onChange={(e) => setScheduledAt(e.target.value)}
               className="mt-1"
+              required
             />
+          </div>
+
+          <div>
+            <Label htmlFor={`caption-${id}`} className="text-xs">
+              Description / caption (required)
+            </Label>
+            <Textarea
+              id={`caption-${id}`}
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="mt-1 min-h-28"
+              placeholder="What viewers read under the video"
+              required
+            />
+            <p className="mt-1 text-[11px] text-muted-foreground">{description.trim().length} characters</p>
           </div>
 
           <div>
@@ -219,7 +229,7 @@ export function ScheduleInBuffer({
           {selectedChannels.some((ch) => ch.startsWith("youtube_")) ? (
             <div>
               <Label htmlFor={`youtube-title-${id}`} className="text-xs">
-                YouTube title ({youtubeTitle.length}/70 chars)
+                YouTube title ({youtubeTitle.length}/70)
               </Label>
               <Input
                 id={`youtube-title-${id}`}
@@ -228,17 +238,17 @@ export function ScheduleInBuffer({
                 onChange={(e) => setYoutubeTitle(e.target.value.slice(0, 70))}
                 maxLength={70}
                 className="mt-1"
+                required
               />
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Title goes on YouTube; the description above is the post body on every channel.
+              </p>
             </div>
           ) : null}
         </div>
 
-        <Button
-          type="submit"
-          disabled={isPending || selectedChannels.length === 0}
-          className="w-full"
-        >
-          {isPending ? "Scheduling..." : "Schedule Post"}
+        <Button type="submit" disabled={isPending || selectedChannels.length === 0 || !description.trim()} className="w-full">
+          {isPending ? "Scheduling…" : "Schedule with description"}
         </Button>
       </form>
     </div>

@@ -375,12 +375,6 @@ export async function moveContent(id: string, status: string) {
   refresh(["/content", "/approvals"]);
 }
 
-const BUFFER_CHANNELS: Record<string, string> = {
-  youtube_viral_digests: process.env.BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS || "",
-  youtube_johnny_snow: process.env.BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW || "",
-  instagram: process.env.BUFFER_CHANNEL_INSTAGRAM || "",
-};
-
 export async function scheduleToBuffer(formData: FormData) {
   const { supabase } = await requireOwner();
   const id = text(formData, "id");
@@ -388,104 +382,76 @@ export async function scheduleToBuffer(formData: FormData) {
   const videoUrl = text(formData, "video_url");
   const caption = text(formData, "caption");
   const youtubeTitle = text(formData, "youtube_title");
-  const channels = formData.getAll("channels") as string[];
+  const channels = formData.getAll("channels").map(String);
 
   if (!id) throw new Error("Content ID is required");
   if (!scheduledAt) throw new Error("Schedule time is required");
   if (!videoUrl) throw new Error("Video URL is required");
+  if (!/^https?:\/\//i.test(videoUrl)) throw new Error("Video must be a public https URL");
   if (channels.length === 0) throw new Error("Select at least one channel");
 
-  const accessToken = process.env.BUFFER_ACCESS_TOKEN?.trim();
-  if (!accessToken) {
-    throw new Error("BUFFER_ACCESS_TOKEN is not configured on the server");
+  const {
+    buildPostDescription,
+    bufferPublishToken,
+    createBufferScheduledPost,
+    nyLocalInputToDueAt,
+    resolveChannelIds,
+    truncateYoutubeTitle,
+  } = await import("@/lib/buffer-publish");
+  const { scriptParts } = await import("@/lib/content");
+
+  if (!bufferPublishToken()) {
+    throw new Error("BUFFER_API_KEY is not configured on the server");
   }
 
-  const channelIds = channels
-    .map((ch) => BUFFER_CHANNELS[ch])
-    .filter(Boolean);
-
-  if (channelIds.length === 0) {
+  const resolved = resolveChannelIds(channels);
+  if (resolved.length === 0) {
     throw new Error("No valid Buffer channel IDs configured for selected channels");
   }
 
-  const scheduledDate = new Date(scheduledAt);
+  const { data: row, error: rowError } = await supabase
+    .from("content_queue")
+    .select("id, content_id, title, caption, script_json")
+    .eq("id", id)
+    .maybeSingle();
+  if (rowError || !row) throw new Error(rowError?.message || "Content not found");
+
+  const script = scriptParts(row.script_json, caption || row.caption);
+  const description = buildPostDescription({
+    caption: caption || script.caption,
+    hook: script.hook,
+    cta: script.cta,
+    title: row.title,
+    contentId: row.content_id,
+  });
+  if (!description.trim()) {
+    throw new Error("Add a caption/description before scheduling — posts cannot go out blank.");
+  }
+
+  const dueAt = nyLocalInputToDueAt(scheduledAt);
+  const ytTitle = truncateYoutubeTitle(youtubeTitle || script.hook || row.title || row.content_id || "Viral Digest");
   const errors: string[] = [];
   const successes: string[] = [];
 
-  for (const channelId of channelIds) {
-    const isYouTube = channels.some(
-      (ch) => ch.startsWith("youtube_") && BUFFER_CHANNELS[ch] === channelId
-    );
-
-    const postText = isYouTube && youtubeTitle ? youtubeTitle : caption;
-
+  for (const channel of resolved) {
     try {
-      const response = await fetch("https://api.buffer.com", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          query: `mutation CreatePost($input: PostCreateInput!) {
-            postCreate(input: $input) {
-              post { id }
-              userErrors { message }
-            }
-          }`,
-          variables: {
-            input: {
-              channelIds: [channelId],
-              text: postText || "",
-              scheduledAt: scheduledDate.toISOString(),
-              media: [{ source: videoUrl, mediaType: "VIDEO" }],
-            },
-          },
-        }),
-        cache: "no-store",
+      await createBufferScheduledPost({
+        channelId: channel.id,
+        channelKey: channel.key,
+        text: description,
+        videoUrl,
+        dueAt,
+        youtubeTitle: ytTitle,
       });
-
-      if (!response.ok) {
-        const text = await response.text();
-        if (text.includes("limit") || text.includes("10 posts")) {
-          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
-        }
-        throw new Error(`Buffer API error: ${response.status}`);
-      }
-
-      const payload = await response.json() as {
-        data?: { postCreate?: { post?: { id: string }; userErrors?: { message: string }[] } };
-        errors?: { message: string }[];
-      };
-
-      if (payload.errors?.length) {
-        const msg = payload.errors.map((e) => e.message).join("; ");
-        if (msg.includes("limit") || msg.includes("10 posts")) {
-          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
-        }
-        throw new Error(msg);
-      }
-
-      const userErrors = payload.data?.postCreate?.userErrors;
-      if (userErrors?.length) {
-        const msg = userErrors.map((e) => e.message).join("; ");
-        if (msg.includes("limit") || msg.includes("10 posts")) {
-          throw new Error("Buffer free plan 10-post limit reached. Upgrade or delete existing scheduled posts.");
-        }
-        throw new Error(msg);
-      }
-
-      successes.push(channelId);
+      successes.push(channel.key);
     } catch (error) {
       const msg = error instanceof Error ? error.message : "Unknown error";
-      errors.push(msg);
-      if (msg.includes("10-post limit")) {
-        throw new Error(msg);
-      }
+      errors.push(`${channel.key}: ${msg}`);
+      if (msg.includes("10-post limit")) throw new Error(msg);
     }
   }
 
-  if (successes.length === 0 && errors.length > 0) {
+  if (successes.length === 0) {
     throw new Error(`Failed to schedule: ${errors.join("; ")}`);
   }
 
@@ -493,7 +459,8 @@ export async function scheduleToBuffer(formData: FormData) {
     .from("content_queue")
     .update({
       status: "scheduled",
-      scheduled_at: scheduledDate.toISOString(),
+      scheduled_at: dueAt,
+      caption: description,
     })
     .eq("id", id);
 
@@ -504,81 +471,42 @@ export async function scheduleToBuffer(formData: FormData) {
     entityId: id,
     action: "scheduled_to_buffer",
     details: {
-      scheduled_at: scheduledDate.toISOString(),
-      channels: channels,
-      successes: successes.length,
+      scheduled_at: dueAt,
+      channels: successes,
+      description_chars: description.length,
+      youtube_title: ytTitle,
       errors: errors.length > 0 ? errors : undefined,
     },
   });
 
-  refresh(["/content", "/approvals"]);
+  refresh(["/content", "/approvals", "/"]);
 }
 
 export async function getNextFreeSlot() {
-  const { supabase } = await requireOwner();
-  
-  const slots = [12, 18, 21];
-  const maxPerDay = 3;
-  const daysToCheck = 14;
-  
-  const now = new Date();
-  const nyNow = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  
-  const startDate = new Date(nyNow);
-  startDate.setHours(0, 0, 0, 0);
-  
-  const endDate = new Date(startDate);
-  endDate.setDate(endDate.getDate() + daysToCheck);
-  
-  const { data: scheduled } = await supabase
-    .from("content_queue")
-    .select("scheduled_at")
-    .eq("status", "scheduled")
-    .not("scheduled_at", "is", null)
-    .gte("scheduled_at", startDate.toISOString())
-    .lte("scheduled_at", endDate.toISOString());
+  try {
+    const { supabase } = await requireOwner();
+    const { suggestNextPostSlot, bufferChannelId } = await import("@/lib/buffer-publish");
 
-  const usedSlots = new Set(
-    (scheduled || [])
-      .map((row) => row.scheduled_at)
-      .filter(Boolean)
-  );
+    const horizon = new Date(Date.now() + 14 * 86400000).toISOString();
+    const { data: scheduled } = await supabase
+      .from("content_queue")
+      .select("scheduled_at")
+      .in("status", ["scheduled", "approved"])
+      .not("scheduled_at", "is", null)
+      .gte("scheduled_at", new Date().toISOString())
+      .lte("scheduled_at", horizon);
 
-  for (let dayOffset = 0; dayOffset < daysToCheck; dayOffset++) {
-    const checkDate = new Date(startDate);
-    checkDate.setDate(checkDate.getDate() + dayOffset);
-    
-    let dayCount = 0;
-    for (const slot of usedSlots) {
-      const slotDate = new Date(slot);
-      if (slotDate.toDateString() === checkDate.toDateString()) {
-        dayCount++;
-      }
-    }
-    
-    if (dayCount >= maxPerDay) continue;
-    
-    for (const hour of slots) {
-      const slotTime = new Date(checkDate);
-      slotTime.setHours(hour, 0, 0, 0);
-      
-      if (slotTime <= nyNow) continue;
-      
-      const isUsed = Array.from(usedSlots).some((used) => {
-        const usedDate = new Date(used);
-        return usedDate.getTime() === slotTime.getTime();
-      });
-      
-      if (!isUsed) {
-        return slotTime.toISOString().slice(0, 16);
-      }
-    }
+    const suggestion = await suggestNextPostSlot({
+      usedIsoTimes: (scheduled || []).map((row) => row.scheduled_at).filter(Boolean) as string[],
+      channelIds: [bufferChannelId("youtube_viral_digests"), bufferChannelId("instagram")],
+    });
+    return suggestion.localValue;
+  } catch {
+    // Never break page render over slot suggestion.
+    const tomorrow = new Date(Date.now() + 86400000);
+    const y = tomorrow.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    return `${y}T12:00`;
   }
-  
-  const fallback = new Date(nyNow);
-  fallback.setDate(fallback.getDate() + 1);
-  fallback.setHours(12, 0, 0, 0);
-  return fallback.toISOString().slice(0, 16);
 }
 
 export async function recordPayment(formData: FormData) {

@@ -94,17 +94,25 @@ export default async function OverviewPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-      <header className="relative overflow-hidden rounded-3xl bg-[radial-gradient(120%_120%_at_0%_0%,rgba(251,191,36,0.16),transparent_55%),linear-gradient(180deg,rgba(255,255,255,0.04),transparent)] px-5 py-6 ring-1 ring-foreground/10 md:px-7 md:py-8">
-        <p className="text-[11px] tracking-[0.18em] text-amber-300/90 uppercase">Ops Hub</p>
-        <h1 className="mt-2 max-w-2xl text-3xl font-medium tracking-tight md:text-4xl">What needs you today</h1>
-        <p className="mt-2 max-w-xl text-sm text-muted-foreground md:text-base">
-          Leads to follow up, clients to manage, and content you can watch and read on this site.
-        </p>
+      <header className="panel relative overflow-hidden rounded-3xl px-5 py-6 ring-1 ring-ink/10 md:px-7 md:py-8">
+        <div className="mesh" aria-hidden>
+          <span />
+          <span />
+        </div>
+        <div className="relative">
+          <p className="text-[11px] tracking-[0.18em] text-signal uppercase">AI Transformation</p>
+          <h1 className="mt-2 max-w-2xl font-display text-3xl font-semibold tracking-tight text-ink md:text-4xl">
+            What needs you today
+          </h1>
+          <p className="mt-2 max-w-xl text-sm text-ink-soft md:text-base">
+            Approve clips, schedule with captions, and keep the pipeline moving.
+          </p>
           <div className="mt-5 flex flex-wrap gap-2">
-          <Pill href="/leads?followUp=due">{dueRows.length} follow-ups</Pill>
-          <Pill href="/content">{movingRows.length} in motion</Pill>
-          <Pill href="/content">Post calendar</Pill>
-          <Pill href="/content?status=posted">Watch posted</Pill>
+            <Pill href="/approvals">{inReview.count || 0} in review</Pill>
+            <Pill href="/leads?followUp=due">{dueRows.length} follow-ups</Pill>
+            <Pill href="/content?status=approved">Ready to schedule</Pill>
+            <Pill href="/content">Content desk</Pill>
+          </div>
         </div>
       </header>
 
@@ -312,28 +320,23 @@ function Metric({
   hintLink?: { href: string; text: string };
 }) {
   return (
-    <Link
-      href={href}
-      className="rounded-3xl bg-card/70 px-4 py-4 ring-1 ring-foreground/10 transition hover:bg-card hover:ring-foreground/20"
-    >
-      <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">{label}</p>
-      <p className="mt-2 text-2xl font-medium tracking-tight tabular-nums md:text-3xl">{value}</p>
+    <div className="rounded-3xl bg-card/70 px-4 py-4 ring-1 ring-foreground/10 transition hover:bg-card hover:ring-foreground/20">
+      <Link href={href} className="block">
+        <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">{label}</p>
+        <p className="mt-2 text-2xl font-medium tracking-tight tabular-nums md:text-3xl">{value}</p>
+      </Link>
       {hint || hintLink ? (
         <p className="mt-1 truncate text-xs text-muted-foreground">
-          {hint}
+          {hint ? <Link href={href}>{hint}</Link> : null}
           {hint && hintLink ? " · " : ""}
           {hintLink ? (
-            <Link
-              href={hintLink.href}
-              className="text-amber-300/90 hover:underline"
-              onClick={(e) => e.stopPropagation()}
-            >
+            <Link href={hintLink.href} className="text-signal hover:underline">
               {hintLink.text}
             </Link>
           ) : null}
         </p>
       ) : null}
-    </Link>
+    </div>
   );
 }
 
@@ -350,7 +353,7 @@ function Pill({ href, children }: { href: string; children: ReactNode }) {
   return (
     <Link
       href={href}
-      className="rounded-full bg-white/8 px-3 py-1.5 text-xs text-foreground/90 ring-1 ring-white/10 transition hover:bg-white/12"
+      className="rounded-full bg-ink px-3.5 py-1.5 text-xs font-medium text-paper transition hover:bg-ink/90"
     >
       {children}
     </Link>

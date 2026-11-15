@@ -1,6 +1,5 @@
 import { signIn } from "@/app/login/actions";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
@@ -20,14 +19,26 @@ export default async function LoginPage({
   const next = safeNext(params.next);
 
   return (
-    <main className="flex min-h-screen items-center justify-center px-4">
-      <Card className="w-full max-w-md">
-        <CardHeader>
-          <p className="text-xs tracking-[0.18em] text-primary uppercase">AI Transformation</p>
-          <CardTitle>Ops Hub</CardTitle>
-          <CardDescription>One shared password for the ops team. The hub stays private.</CardDescription>
-        </CardHeader>
-        <CardContent>
+    <main className="ait-grid relative flex min-h-screen items-center justify-center px-4">
+      <div className="panel relative w-full max-w-md overflow-hidden rounded-3xl px-6 py-7 ring-1 ring-ink/10">
+        <div className="mesh" aria-hidden>
+          <span />
+          <span />
+        </div>
+        <div className="relative">
+          <div className="mb-5 flex items-center gap-3">
+            <span className="relative flex size-10 items-center justify-center rounded-xl bg-[linear-gradient(145deg,#0c1a17,#1a3d35)] text-sm font-semibold text-paper">
+              A
+              <span className="absolute inset-x-1.5 top-1/2 h-0.5 -translate-y-1/2 bg-signal-bright" />
+            </span>
+            <div>
+              <p className="text-[11px] tracking-[0.18em] text-signal uppercase">AI Transformation</p>
+              <h1 className="font-display text-2xl font-semibold tracking-tight text-ink">Ops Hub</h1>
+            </div>
+          </div>
+          <p className="mb-5 text-sm text-ink-soft">
+            One shared password for the ops team. The hub stays private.
+          </p>
           {params.error ? <p className="mb-4 text-sm text-destructive">{params.error}</p> : null}
           <form action={signIn} className="flex flex-col gap-3">
             <input type="hidden" name="next" value={next} />
@@ -38,14 +49,17 @@ export default async function LoginPage({
                 name="password"
                 type="password"
                 required
-                autoComplete="current-password"
                 autoFocus
+                autoComplete="current-password"
+                className="bg-white/70"
               />
             </div>
-            <Button type="submit">Open the hub</Button>
+            <Button type="submit" className="mt-1 rounded-full bg-ink text-paper hover:bg-ink/90">
+              Enter hub
+            </Button>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </main>
   );
 }

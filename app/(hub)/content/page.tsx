@@ -61,21 +61,33 @@ export default async function ContentPage({
   );
 
   const visible = status ? rows.filter((row) => row.status === status) : rows;
-  const reading = status ? visible : visible.filter((row) => row.status !== "posted" && row.status !== "skipped");
+  const reading = status
+    ? visible
+    : visible
+        .filter((row) => row.status !== "posted" && row.status !== "skipped" && row.status !== "rejected")
+        .sort((a, b) => actionRank(a.status) - actionRank(b.status));
   const statusFilters = CONTENT_COLUMNS.filter(([id]) => id === status || (statusCounts.get(id) || 0) > 0);
+  const needsSchedule = rows.filter((row) => row.status === "approved" && !row.scheduled_at).length;
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <p className="text-[11px] tracking-[0.16em] text-muted-foreground uppercase">Library</p>
-          <h1 className="mt-1 text-3xl font-medium tracking-tight">Content</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Open any piece to watch the video and read the script on this site
-            {buffer.syncedAt ? ` · Buffer synced ${formatWhen(buffer.syncedAt)}` : ""}.
-          </p>
+    <div className="flex w-full flex-col gap-6 md:gap-8">
+      <div className="panel relative overflow-hidden rounded-3xl px-5 py-5 ring-1 ring-ink/10">
+        <div className="mesh" aria-hidden>
+          <span />
+          <span />
         </div>
-        <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+        <div className="relative flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Library</p>
+            <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Content</h1>
+            <p className="mt-1 text-sm text-ink-soft">
+              Approve, schedule with a caption, then watch performance
+              {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
+              {buffer.syncedAt ? ` · Buffer synced ${formatWhen(buffer.syncedAt)}` : ""}.
+            </p>
+          </div>
+          <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+        </div>
       </div>
 
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -110,10 +122,19 @@ export default async function ContentPage({
       />
 
       <section className="flex flex-col gap-3">
-        <h2 className="text-sm font-medium">Watch & read</h2>
-        {reading.length === 0 ? <p className="text-sm text-muted-foreground">Nothing in this status.</p> : null}
+        <div className="flex items-end justify-between gap-3">
+          <h2 className="font-display text-sm font-semibold text-ink">
+            {status ? "Watch & read" : "Needs attention"}
+          </h2>
+          {!status ? (
+            <Link href="/approvals" className="text-xs text-signal hover:underline">
+              Open approvals
+            </Link>
+          ) : null}
+        </div>
+        {reading.length === 0 ? <p className="text-sm text-ink-soft">Nothing in this status.</p> : null}
         <div className="flex flex-col gap-3">
-          {reading.map((row) => {
+          {(status ? reading : reading.slice(0, 8)).map((row) => {
             const script = scriptParts(row.script_json, row.caption);
             return (
               <ContentPiece
@@ -208,6 +229,14 @@ export default async function ContentPage({
   );
 }
 
+function actionRank(status: string) {
+  if (status === "in_review") return 0;
+  if (status === "approved") return 1;
+  if (status === "scheduled") return 2;
+  if (status === "changes_requested") return 3;
+  return 4;
+}
+
 function Filter({
   href,
   label,
@@ -222,7 +251,11 @@ function Filter({
   return (
     <Link
       href={href}
-      className={`shrink-0 rounded-full px-3 py-1.5 text-xs ring-1 ring-foreground/10 ${active ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:text-foreground"}`}
+      className={`shrink-0 rounded-full px-3 py-1.5 text-xs ring-1 ${
+        active
+          ? "bg-ink text-paper ring-ink"
+          : "bg-white/50 text-ink-soft ring-ink/10 hover:text-ink"
+      }`}
     >
       {label} <span className="tabular-nums">{count}</span>
     </Link>
@@ -231,9 +264,9 @@ function Filter({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-3xl bg-card/70 px-4 py-4 ring-1 ring-foreground/10">
-      <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">{label}</p>
-      <p className="mt-2 text-2xl font-medium tabular-nums">{value}</p>
+    <div className="rounded-3xl bg-white/55 px-4 py-4 ring-1 ring-ink/10">
+      <p className="text-[11px] tracking-[0.14em] text-ink-soft uppercase">{label}</p>
+      <p className="mt-2 font-display text-2xl font-semibold tabular-nums text-ink">{value}</p>
     </div>
   );
 }

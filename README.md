@@ -25,12 +25,11 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Hub reads and writes, plus agent/n8n jobs |
 | `SUPABASE_SECRET_KEY` | Server only. Alternate to the service role key |
 | `OPS_PASSWORD` | Server only. Shared password that opens the hub |
-| `BUFFER_API_KEY` | Server only. Personal key from Buffer → Settings → API (for analytics sync) |
-| `BUFFER_ACCESS_TOKEN` | Server only. Buffer access token for scheduling posts (Buffer → Settings → API) |
+| `BUFFER_API_KEY` | Server only. Personal key from Buffer → Settings → API (analytics + scheduling) |
 | `BUFFER_ORGANIZATION_ID` | Server only. Defaults to the AI Transformation org |
-| `BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS` | Server only. Buffer channel ID for YouTube Viral Digests |
-| `BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW` | Server only. Buffer channel ID for YouTube Johnny Snow (optional) |
-| `BUFFER_CHANNEL_INSTAGRAM` | Server only. Buffer channel ID for Instagram |
+| `BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS` | Optional. Defaults to Viral Digests channel |
+| `BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW` | Optional. Defaults to Johnny Snow channel |
+| `BUFFER_CHANNEL_INSTAGRAM` | Optional. Defaults to Instagram business channel |
 
 ## What the hub does
 
@@ -40,7 +39,7 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 - Agent roster, startup directives, a single approvals inbox, task and content boards, and daily reports.
 - Command palette on Ctrl/Cmd-K. Live updates for approvals, content, activities, and tasks.
 
-Approval changes status, `approved_by`, `review_notes`, and `reviewed_at`. It does not send email or publish a post. Agents and n8n do that after they see an approved row.
+Approval changes status, `approved_by`, `review_notes`, and `reviewed_at`. From an **approved** card, **Schedule in Buffer** picks the next free slot from your Buffer posting schedules (America/New_York), requires a caption/description, and creates the scheduled video posts via the Buffer API.
 
 Dragging a content card to Posted only changes status. It does not call a social API.
 

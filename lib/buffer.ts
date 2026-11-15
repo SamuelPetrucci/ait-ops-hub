@@ -44,7 +44,7 @@ export function bufferOrgId() {
   return process.env.BUFFER_ORGANIZATION_ID?.trim() || "6ae5ef2ae4504097267f8cd4";
 }
 
-async function bufferGraphQL<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
+export async function bufferGraphQL<T>(query: string, variables?: Record<string, unknown>): Promise<T> {
   const key = process.env.BUFFER_API_KEY?.trim();
   if (!key) throw new Error("Set BUFFER_API_KEY on the server (Buffer → Settings → API).");
   const response = await fetch(BUFFER_API, {
