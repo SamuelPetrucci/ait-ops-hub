@@ -3,6 +3,7 @@ import {
   FOLLOW_UP_CADENCE,
   OFFER,
   STOP_GOALS,
+  buildProposalIdea,
   formatVisitWindow,
   getPlaybook,
   getVisitWindow,
@@ -21,6 +22,7 @@ export type DayPlanCandidate = {
   miles_from_home?: number | null;
   visit_opener?: string | null;
   primary_opportunity?: string | null;
+  proposed_service?: string | null;
   stage?: string | null;
 };
 
@@ -32,6 +34,8 @@ export type DayPlanStop = RouteStop & {
   opener: string;
   painPoints: string[];
   opportunity: string | null;
+  proposedService: string | null;
+  proposalIdea: string;
   cardDropLine: string;
   callAsk: string;
   goals: { id: string; label: string }[];
@@ -174,6 +178,8 @@ function buildStopPlaybook(
 ): DayPlanStop {
   const category = resolveIndustryCategory(stop.industry);
   const playbook = getPlaybook(category);
+  const proposedService = candidate?.proposed_service?.trim() || null;
+  const opportunity = candidate?.primary_opportunity?.trim() || null;
   return {
     ...stop,
     order,
@@ -182,7 +188,14 @@ function buildStopPlaybook(
     suggestedArrive: suggestedArriveFor(order - 1, stop.industry),
     opener: candidate?.visit_opener?.trim() || playbook.opener,
     painPoints: playbook.pains,
-    opportunity: candidate?.primary_opportunity ?? null,
+    opportunity,
+    proposedService,
+    proposalIdea: buildProposalIdea({
+      company: stop.company,
+      industry: stop.industry,
+      proposedService,
+      primaryOpportunity: opportunity,
+    }),
     cardDropLine: playbook.cardDropLine,
     callAsk: playbook.callAsk,
     goals: STOP_GOALS.map((g) => ({ id: g.id, label: g.label })),
@@ -252,6 +265,7 @@ export function buildDaySalesPlan(
         `   Opener: ${s.opener}`,
         `   Pain points:`,
         pains,
+        `   Proposal idea: ${s.proposalIdea}`,
         `   Card: ${s.cardDropLine}`,
         `   Ask: ${s.callAsk}`,
       ].join("\n");

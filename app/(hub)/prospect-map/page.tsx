@@ -20,7 +20,7 @@ export default async function ProspectMapPage() {
     supabase
       .from("prospects")
       .select(
-        "id, company, contact, website, city, region, industry, stage, lat, lng, miles_from_home, drive_minutes, route_id, visit_order, visit_opener, primary_opportunity, notes, lead_score"
+        "id, company, contact, website, city, region, industry, stage, lat, lng, miles_from_home, drive_minutes, route_id, visit_order, visit_opener, primary_opportunity, proposed_service, notes, lead_score"
       )
       .neq("stage", "do_not_contact")
       .neq("stage", "lost")
@@ -53,6 +53,7 @@ export default async function ProspectMapPage() {
         visit_order: row.visit_order,
         visit_opener: row.visit_opener,
         primary_opportunity: row.primary_opportunity,
+        proposed_service: row.proposed_service,
         notes: row.notes,
         lead_score: row.lead_score,
       });
@@ -77,8 +78,8 @@ export default async function ProspectMapPage() {
       <div className="mb-4 sm:mb-6">
         <h1 className="text-2xl font-medium tracking-tight sm:text-3xl">Sales Map</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {mapped.length} mapped, {unmapped.length} need coordinates. Home: Groton, CT. Discover an area, then use{" "}
-          <strong>Plan my day</strong> for a stop order with conversation, card-drop, pain-point, and call-booking scripts.
+          {mapped.length} mapped, {unmapped.length} need coordinates. Home: Groton, CT. Drop a pin (or search a town),
+          find nearby businesses, import them, then <strong>Plan my day</strong> for stops with pitch + proposal ideas.
         </p>
       </div>
       <ProspectMapView

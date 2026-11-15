@@ -17,6 +17,9 @@ export type DiscoverRequest = {
   categoryIds: string[];
   sizeBuckets: CompanySizeBucket[];
   enrichWebsites?: boolean;
+  /** Optional map pin — when set, search centers here instead of geocoding the town text */
+  lat?: number;
+  lng?: number;
 };
 
 export type ImportDiscoveredRequest = {
@@ -39,6 +42,55 @@ export type ImportDiscoveredRequest = {
   }>;
 };
 
+const NOMINATIM_REVERSE = "https://nominatim.openstreetmap.org/reverse";
+const USER_AGENT = "AIT-Ops-Hub-Discovery/1.0 (samuel@aitransformation.co)";
+
+/** Resolve a map-pin lat/lng to a short place label for the discovery form. */
+export async function reverseGeocodePin(
+  lat: number,
+  lng: number,
+): Promise<{ label: string } | { error: string }> {
+  await requireOwner();
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return { error: "Invalid coordinates" };
+  }
+
+  try {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lng),
+      format: "json",
+      zoom: "14",
+    });
+    const response = await fetch(`${NOMINATIM_REVERSE}?${params}`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) {
+      return { label: `Dropped pin (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+    }
+    const payload = (await response.json()) as {
+      display_name?: string;
+      address?: { city?: string; town?: string; village?: string; hamlet?: string; state?: string };
+    };
+    const place =
+      payload.address?.city ||
+      payload.address?.town ||
+      payload.address?.village ||
+      payload.address?.hamlet;
+    if (place && payload.address?.state) {
+      return { label: `${place}, ${payload.address.state}` };
+    }
+    if (payload.display_name) {
+      // Keep the label short for the form input
+      return { label: payload.display_name.split(",").slice(0, 3).join(",").trim() };
+    }
+    return { label: `Dropped pin (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+  } catch {
+    return { label: `Dropped pin (${lat.toFixed(4)}, ${lng.toFixed(4)})` };
+  }
+}
+
 export async function discoverArea(input: DiscoverRequest): Promise<DiscoverAreaResult | { error: string }> {
   await requireOwner();
 
@@ -48,6 +100,8 @@ export async function discoverArea(input: DiscoverRequest): Promise<DiscoverArea
       radiusMiles: input.radiusMiles || 10,
       categoryIds: input.categoryIds?.length ? input.categoryIds : DISCOVERY_CATEGORIES.map((c) => c.id),
       sizeBuckets: input.sizeBuckets?.length ? input.sizeBuckets : undefined,
+      lat: input.lat,
+      lng: input.lng,
     });
 
     if (input.enrichWebsites) {

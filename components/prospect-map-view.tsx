@@ -17,9 +17,11 @@ import {
   OFFER,
 } from "@/lib/sales-tactics";
 import { buildDaySalesPlan, type DaySalesPlan } from "@/lib/day-plan";
+import { reverseGeocodePin } from "@/app/actions/discover";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
-import { AreaDiscovery } from "@/components/area-discovery";
+import { AreaDiscovery, type DiscoveryPin } from "@/components/area-discovery";
+import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import type { MappedProspect, ProspectMapFilters, RouteInfo, UnmappedProspect } from "@/lib/prospect-map";
 
@@ -82,6 +84,10 @@ export function ProspectMapView({
   const [dayPlan, setDayPlan] = useState<DaySalesPlan | null>(null);
   const [maxDayStops, setMaxDayStops] = useState(8);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [dropPinMode, setDropPinMode] = useState(false);
+  const [discoveryPin, setDiscoveryPin] = useState<DiscoveryPin | null>(null);
+  const [discoveryRadiusMiles, setDiscoveryRadiusMiles] = useState(12);
+  const [discoveredBusinesses, setDiscoveredBusinesses] = useState<DiscoveredBusiness[]>([]);
 
   const handleFilterChange = (partial: Partial<ProspectMapFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
@@ -192,6 +198,7 @@ export function ProspectMapView({
         miles_from_home: p.miles_from_home,
         visit_opener: p.visit_opener,
         primary_opportunity: p.primary_opportunity,
+        proposed_service: p.proposed_service,
         stage: p.stage,
       })),
       {
@@ -207,8 +214,25 @@ export function ProspectMapView({
     setSelectedIds(new Set(plan.stops.map((s) => s.id)));
     setRouteName(plan.title);
     setPlannerMessage(
-      `Day plan ready: ${plan.stopCount} stops · converse, card drop, pain points, book calls.`
+      `Day plan ready: ${plan.stopCount} stops · pitch, proposal idea, card drop, book calls.`
     );
+  };
+
+  const handleMapDropPin = (lat: number, lng: number) => {
+    const provisional: DiscoveryPin = {
+      lat,
+      lng,
+      label: `Dropped pin (${lat.toFixed(4)}, ${lng.toFixed(4)})`,
+    };
+    setDiscoveryPin(provisional);
+    setDropPinMode(false);
+    setDiscoveredBusinesses([]);
+    startTransition(async () => {
+      const result = await reverseGeocodePin(lat, lng);
+      if ("label" in result) {
+        setDiscoveryPin({ lat, lng, label: result.label });
+      }
+    });
   };
 
   const handleCopyDayPlan = async () => {
@@ -287,7 +311,16 @@ export function ProspectMapView({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <AreaDiscovery />
+      <AreaDiscovery
+        pin={discoveryPin}
+        onPinChange={setDiscoveryPin}
+        dropPinMode={dropPinMode}
+        onDropPinModeChange={setDropPinMode}
+        radiusMiles={discoveryRadiusMiles}
+        onRadiusChange={setDiscoveryRadiusMiles}
+        results={discoveredBusinesses}
+        onResultsChange={setDiscoveredBusinesses}
+      />
 
       <div className="flex items-center justify-between sm:hidden">
         <Button
@@ -401,7 +434,12 @@ export function ProspectMapView({
         onToggleRoutes={() => setShowRoutes((v) => !v)}
         selectedIds={selectedIds}
         onToggleSelect={toggleSelect}
-        plannedRoute={plannedRoute?.ordered || []}
+        plannedRoute={dayPlan?.stops || plannedRoute?.ordered || []}
+        dropPinMode={dropPinMode}
+        discoveryPin={discoveryPin}
+        discoveryRadiusMiles={discoveryRadiusMiles}
+        discoveredBusinesses={discoveredBusinesses}
+        onMapDropPin={handleMapDropPin}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -411,8 +449,8 @@ export function ProspectMapView({
           </CardHeader>
           <CardContent className="space-y-4">
             <p className="text-xs sm:text-sm text-muted-foreground">
-              Build a stop order for the day: short conversations, card drops, pain-point questions,
-              and discovery-call asks. Auto-picks from the current map filter, or uses your selection.
+              Build a stop order for the day: pitch opener, rough proposal idea per company, card drops,
+              pain-point questions, and discovery-call asks. Auto-picks from the current map filter, or uses your selection.
             </p>
 
             <div className="flex flex-wrap items-end gap-2">
@@ -477,15 +515,25 @@ export function ProspectMapView({
                         </div>
                       </div>
                       <p className="mt-2">
-                        <span className="text-muted-foreground">Opener: </span>
+                        <span className="text-muted-foreground">Pitch / opener: </span>
                         {stop.opener}
                       </p>
+                      {stop.proposedService ? (
+                        <p className="mt-1">
+                          <span className="text-muted-foreground">Service niche: </span>
+                          {stop.proposedService}
+                        </p>
+                      ) : null}
                       {stop.opportunity ? (
                         <p className="mt-1">
                           <span className="text-muted-foreground">Opportunity: </span>
                           {stop.opportunity}
                         </p>
                       ) : null}
+                      <p className="mt-2 rounded-md bg-background/60 p-2 ring-1 ring-foreground/5">
+                        <span className="text-muted-foreground">Proposal idea: </span>
+                        {stop.proposalIdea}
+                      </p>
                       <div className="mt-2">
                         <p className="text-muted-foreground">Pain points to discuss:</p>
                         <ul className="mt-1 list-disc space-y-0.5 pl-4">
@@ -593,7 +641,7 @@ export function ProspectMapView({
               </div>
             ) : (
               <p className="text-xs text-muted-foreground italic sm:text-sm">
-                No day plan yet. Use <strong>Plan my day</strong> after discovering/filtering an area,
+                No day plan yet. Drop a pin → discover → import, then <strong>Plan my day</strong>,
                 or select pins and use <strong>Plan from selection</strong>.
               </p>
             )}
