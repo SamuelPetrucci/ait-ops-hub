@@ -175,7 +175,7 @@ export function ScheduleInBuffer({
         <div className="grid gap-3">
           <div>
             <Label htmlFor={`schedule-time-${id}`} className="text-xs">
-              Post time (America/New_York)
+              Post time (Eastern Time)
             </Label>
             <Input
               id={`schedule-time-${id}`}

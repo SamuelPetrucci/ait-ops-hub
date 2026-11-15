@@ -98,11 +98,14 @@ export function PostCalendar({
     .flatMap(([, events]) => events)
     .sort((a, b) => a.when.localeCompare(b.when));
 
-  // Approved/scheduled still waiting to go out (includes overdue slots).
-  const upcoming = monthEvents
-    .filter((event) => event.kind === "scheduled")
-    .sort((a, b) => a.when.localeCompare(b.when))
-    .slice(0, 6);
+  // Prefer upcoming slots; keep a couple of overdue approved/scheduled so nothing is lost.
+  const nowMs = Date.now();
+  const scheduledEvents = monthEvents.filter((event) => event.kind === "scheduled");
+  const future = scheduledEvents.filter((event) => Date.parse(event.when) >= nowMs);
+  const overdue = scheduledEvents
+    .filter((event) => Date.parse(event.when) < nowMs)
+    .sort((a, b) => b.when.localeCompare(a.when));
+  const upcoming = [...future, ...overdue.slice(0, Math.max(0, 6 - future.length))].slice(0, 6);
   const recentPosted = monthEvents
     .filter((event) => event.kind === "posted")
     .sort((a, b) => b.when.localeCompare(a.when))

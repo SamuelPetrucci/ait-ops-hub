@@ -379,15 +379,13 @@ export async function scheduleToBuffer(formData: FormData) {
   const { supabase } = await requireOwner();
   const id = text(formData, "id");
   const scheduledAt = text(formData, "scheduled_at");
-  const videoUrl = text(formData, "video_url");
+  const clientVideoUrl = text(formData, "video_url");
   const caption = text(formData, "caption");
   const youtubeTitle = text(formData, "youtube_title");
   const channels = formData.getAll("channels").map(String);
 
   if (!id) throw new Error("Content ID is required");
   if (!scheduledAt) throw new Error("Schedule time is required");
-  if (!videoUrl) throw new Error("Video URL is required");
-  if (!/^https?:\/\//i.test(videoUrl)) throw new Error("Video must be a public https URL");
   if (channels.length === 0) throw new Error("Select at least one channel");
 
   const {
@@ -398,7 +396,7 @@ export async function scheduleToBuffer(formData: FormData) {
     resolveChannelIds,
     truncateYoutubeTitle,
   } = await import("@/lib/buffer-publish");
-  const { scriptParts } = await import("@/lib/content");
+  const { resolveVideoUrl, scriptParts } = await import("@/lib/content");
 
   if (!bufferPublishToken()) {
     throw new Error("BUFFER_API_KEY is not configured on the server");
@@ -411,10 +409,18 @@ export async function scheduleToBuffer(formData: FormData) {
 
   const { data: row, error: rowError } = await supabase
     .from("content_queue")
-    .select("id, content_id, title, caption, script_json")
+    .select("id, content_id, title, caption, script_json, video_url, storage_path")
     .eq("id", id)
     .maybeSingle();
   if (rowError || !row) throw new Error(rowError?.message || "Content not found");
+
+  const permanentUrl =
+    row.video_url?.startsWith("http://") || row.video_url?.startsWith("https://")
+      ? row.video_url
+      : null;
+  const resolvedUrl = permanentUrl || (await resolveVideoUrl(row)) || clientVideoUrl || null;
+  if (!resolvedUrl) throw new Error("No public video URL available for this content");
+  if (!/^https?:\/\//i.test(resolvedUrl)) throw new Error("Video must be a public https URL");
 
   const script = scriptParts(row.script_json, caption || row.caption);
   const description = buildPostDescription({
@@ -439,7 +445,7 @@ export async function scheduleToBuffer(formData: FormData) {
         channelId: channel.id,
         channelKey: channel.key,
         text: description,
-        videoUrl,
+        videoUrl: resolvedUrl,
         dueAt,
         youtubeTitle: ytTitle,
       });
@@ -461,6 +467,11 @@ export async function scheduleToBuffer(formData: FormData) {
       status: "scheduled",
       scheduled_at: dueAt,
       caption: description,
+      ...(errors.length
+        ? {
+            review_notes: `Buffer partial: ok=${successes.join(",")} fail=${errors.join(" | ")}`,
+          }
+        : {}),
     })
     .eq("id", id);
 
@@ -480,6 +491,12 @@ export async function scheduleToBuffer(formData: FormData) {
   });
 
   refresh(["/content", "/approvals", "/"]);
+
+  if (errors.length > 0) {
+    throw new Error(
+      `Scheduled on ${successes.join(", ")} but failed on ${errors.join("; ")}. Re-run only the failed channels in Buffer if needed.`,
+    );
+  }
 }
 
 export async function getNextFreeSlot() {

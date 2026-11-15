@@ -27,7 +27,7 @@ export type VideoUrlInput = {
  * - http(s) URLs: returned as-is
  * - storage:<bucket>/<path> video_url: server-side signed URL (1 hour)
  * - storage_path field: server-side signed URL from viral-digests bucket (1 hour)
- * - local: paths: returns null (local files not accessible from browser)
+ * - local: paths: ignored; falls through to storage_path when present
  * - null/undefined: returns null
  */
 export async function resolveVideoUrl(input: VideoUrlInput): Promise<string | null> {
@@ -35,10 +35,6 @@ export async function resolveVideoUrl(input: VideoUrlInput): Promise<string | nu
 
   if (video_url?.startsWith("http://") || video_url?.startsWith("https://")) {
     return video_url;
-  }
-
-  if (video_url?.startsWith("local:")) {
-    return null;
   }
 
   if (video_url?.startsWith(STORAGE_PREFIX)) {
@@ -50,6 +46,7 @@ export async function resolveVideoUrl(input: VideoUrlInput): Promise<string | nu
     return createSignedUrl(bucket, objectPath);
   }
 
+  // local: paths are not browser-reachable — still try storage_path / signed URLs.
   if (storage_path) {
     return createSignedUrl(DEFAULT_BUCKET, storage_path);
   }
