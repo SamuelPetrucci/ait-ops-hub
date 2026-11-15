@@ -1,3 +1,6 @@
+import "server-only";
+import { createAdmin } from "@/lib/supabase/admin";
+
 const URL_RE = /https?:\/\/[^\s)\]>"']+/gi;
 
 const SOCIAL_HOSTS = [
@@ -9,6 +12,59 @@ const SOCIAL_HOSTS = [
   "fb.watch",
   "linkedin.com",
 ];
+
+const STORAGE_PREFIX = "storage:";
+const DEFAULT_BUCKET = "viral-digests";
+const SIGNED_URL_EXPIRY_SECONDS = 3600;
+
+export type VideoUrlInput = {
+  video_url?: string | null;
+  storage_path?: string | null;
+};
+
+/**
+ * Resolves a video URL from content_queue row data.
+ * - http(s) URLs: returned as-is
+ * - storage:<bucket>/<path> video_url: server-side signed URL (1 hour)
+ * - storage_path field: server-side signed URL from viral-digests bucket (1 hour)
+ * - local: paths: returns null (local files not accessible from browser)
+ * - null/undefined: returns null
+ */
+export async function resolveVideoUrl(input: VideoUrlInput): Promise<string | null> {
+  const { video_url, storage_path } = input;
+
+  if (video_url?.startsWith("http://") || video_url?.startsWith("https://")) {
+    return video_url;
+  }
+
+  if (video_url?.startsWith("local:")) {
+    return null;
+  }
+
+  if (video_url?.startsWith(STORAGE_PREFIX)) {
+    const path = video_url.slice(STORAGE_PREFIX.length);
+    const slashIndex = path.indexOf("/");
+    if (slashIndex === -1) return null;
+    const bucket = path.slice(0, slashIndex);
+    const objectPath = path.slice(slashIndex + 1);
+    return createSignedUrl(bucket, objectPath);
+  }
+
+  if (storage_path) {
+    return createSignedUrl(DEFAULT_BUCKET, storage_path);
+  }
+
+  return null;
+}
+
+async function createSignedUrl(bucket: string, path: string): Promise<string | null> {
+  const supabase = createAdmin();
+  const { data, error } = await supabase.storage
+    .from(bucket)
+    .createSignedUrl(path, SIGNED_URL_EXPIRY_SECONDS);
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
+}
 
 export type ScriptParts = {
   hook: string;

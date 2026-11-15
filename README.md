@@ -25,8 +25,12 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 | `SUPABASE_SERVICE_ROLE_KEY` | Server only. Hub reads and writes, plus agent/n8n jobs |
 | `SUPABASE_SECRET_KEY` | Server only. Alternate to the service role key |
 | `OPS_PASSWORD` | Server only. Shared password that opens the hub |
-| `BUFFER_API_KEY` | Server only. Personal key from Buffer → Settings → API |
+| `BUFFER_API_KEY` | Server only. Personal key from Buffer → Settings → API (for analytics sync) |
+| `BUFFER_ACCESS_TOKEN` | Server only. Buffer access token for scheduling posts (Buffer → Settings → API) |
 | `BUFFER_ORGANIZATION_ID` | Server only. Defaults to the AI Transformation org |
+| `BUFFER_CHANNEL_YOUTUBE_VIRAL_DIGESTS` | Server only. Buffer channel ID for YouTube Viral Digests |
+| `BUFFER_CHANNEL_YOUTUBE_JOHNNY_SNOW` | Server only. Buffer channel ID for YouTube Johnny Snow (optional) |
+| `BUFFER_CHANNEL_INSTAGRAM` | Server only. Buffer channel ID for Instagram |
 
 ## What the hub does
 

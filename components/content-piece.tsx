@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { Badge } from "@/components/ui/badge";
+import { ContentStatusSelect, ScheduleInBuffer } from "@/components/content-controls";
 import type { LiveLink } from "@/lib/content";
-import { labelize } from "@/lib/format";
+import { formatWhen } from "@/lib/format";
 
 export function ContentPiece({
   id,
@@ -9,11 +9,14 @@ export function ContentPiece({
   title,
   status,
   hook,
+  caption,
   platforms,
   agent,
   videoUrl,
   notionUrl,
   links,
+  scheduledAt,
+  suggestedTime,
   compact = false,
 }: {
   id: string;
@@ -21,34 +24,41 @@ export function ContentPiece({
   title: string;
   status: string;
   hook?: string;
+  caption?: string;
   platforms?: string[] | null;
   agent?: string | null;
   videoUrl?: string | null;
   notionUrl?: string | null;
   links?: LiveLink[];
+  scheduledAt?: string | null;
+  suggestedTime?: string;
   compact?: boolean;
 }) {
   const context = [code, agent, (platforms || []).slice(0, 3).join(", ")].filter(Boolean).join(" · ");
 
   if (compact) {
     return (
-      <Link
-        href={`/content/${id}`}
-        className="group flex gap-3 rounded-2xl bg-card/80 p-2.5 ring-1 ring-foreground/10 transition hover:bg-card hover:ring-foreground/20"
-      >
-        <VideoThumb src={videoUrl} className="h-16 w-28 shrink-0" />
+      <div className="group flex gap-3 rounded-2xl bg-card/80 p-2.5 ring-1 ring-foreground/10 transition hover:bg-card hover:ring-foreground/20">
+        <Link href={`/content/${id}`} className="shrink-0">
+          <VideoThumb src={videoUrl} className="h-16 w-28" />
+        </Link>
         <div className="min-w-0 flex-1 py-0.5">
           <div className="flex items-start justify-between gap-2">
-            <p className="line-clamp-1 text-sm font-medium group-hover:underline">{title}</p>
-            <Badge variant="outline" className="shrink-0 capitalize">
-              {labelize(status)}
-            </Badge>
+            <Link href={`/content/${id}`} className="line-clamp-1 text-sm font-medium hover:underline">
+              {title}
+            </Link>
+            <ContentStatusSelect id={id} currentStatus={status} size="sm" />
           </div>
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {hook || "Open to read the script."}
           </p>
+          {scheduledAt ? (
+            <p className="mt-1 text-[10px] text-sky-300/90">
+              {formatWhen(scheduledAt)}
+            </p>
+          ) : null}
         </div>
-      </Link>
+      </div>
     );
   }
 
@@ -68,15 +78,18 @@ export function ContentPiece({
               <Link href={`/content/${id}`} className="mt-0.5 block text-base font-medium hover:underline">
                 {title}
               </Link>
+              {scheduledAt ? (
+                <p className="mt-0.5 text-xs text-sky-300/90">
+                  Scheduled: {formatWhen(scheduledAt)}
+                </p>
+              ) : null}
             </div>
-            <Badge variant="outline" className="capitalize">
-              {labelize(status)}
-            </Badge>
+            <ContentStatusSelect id={id} currentStatus={status} />
           </div>
           <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
             {hook || "No script is stored on this row yet."}
           </p>
-          <div className="mt-auto flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-2 text-xs">
             <Link href={`/content/${id}`} className="font-medium text-primary hover:underline">
               Open viewer
             </Link>
@@ -102,6 +115,15 @@ export function ContentPiece({
               </a>
             ))}
           </div>
+          {status === "approved" && suggestedTime ? (
+            <ScheduleInBuffer
+              id={id}
+              videoUrl={videoUrl || null}
+              caption={caption || ""}
+              hook={hook || ""}
+              suggestedTime={suggestedTime}
+            />
+          ) : null}
         </div>
       </div>
     </article>

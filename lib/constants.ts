@@ -59,6 +59,7 @@ export const CONTENT_COLUMNS = [
   ["in_review", "In review"],
   ["changes_requested", "Changes"],
   ["approved", "Approved"],
+  ["scheduled", "Scheduled"],
   ["posted", "Posted"],
   ["rejected", "Rejected"],
   ["skipped", "Skipped"],
@@ -88,4 +89,5 @@ export const NAV = [
   { href: "/leads", label: "Leads" },
   { href: "/clients", label: "Clients" },
   { href: "/content", label: "Content" },
+  { href: "/approvals", label: "Approvals" },
 ] as const;

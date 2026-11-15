@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { getNextFreeSlot } from "@/app/actions/mutations";
 import { ContentBoard } from "@/components/boards";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
@@ -6,7 +7,7 @@ import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
 import { bufferConfigured, readBufferTotals } from "@/lib/buffer";
 import { CONTENT_COLUMNS } from "@/lib/constants";
-import { byContentRecency, liveLinks, scriptParts } from "@/lib/content";
+import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { formatWhen, nestedString } from "@/lib/format";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
@@ -23,11 +24,11 @@ export default async function ContentPage({
   const status = STATUSES.includes(params.status as (typeof STATUSES)[number]) ? params.status : "";
   const month = params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : "";
   const { supabase } = await requireOwner();
-  const [queue, performance, buffer] = await Promise.all([
+  const [queue, performance, buffer, suggestedTime] = await Promise.all([
     supabase
       .from("content_queue")
       .select(
-        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, notion_page_url, platform_links, review_notes, updated_at, created_at",
+        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, updated_at, created_at",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -40,13 +41,24 @@ export default async function ContentPage({
       .order("views", { ascending: false })
       .limit(100),
     readBufferTotals(),
+    getNextFreeSlot(),
   ]);
   if (queue.error) throw new Error(queue.error.message);
   if (performance.error) throw new Error(performance.error.message);
 
-  const rows = [...(queue.data ?? [])].sort(byContentRecency);
+  const rawRows = [...(queue.data ?? [])].sort(byContentRecency);
   const statusCounts = new Map<string, number>();
-  for (const row of rows) statusCounts.set(row.status, (statusCounts.get(row.status) || 0) + 1);
+  for (const row of rawRows) statusCounts.set(row.status, (statusCounts.get(row.status) || 0) + 1);
+
+  const rows = await Promise.all(
+    rawRows.map(async (row) => ({
+      ...row,
+      resolvedVideoUrl: await resolveVideoUrl({
+        video_url: row.video_url,
+        storage_path: row.storage_path,
+      }),
+    }))
+  );
 
   const visible = status ? rows.filter((row) => row.status === status) : rows;
   const reading = status ? visible : visible.filter((row) => row.status !== "posted" && row.status !== "skipped");
@@ -111,11 +123,14 @@ export default async function ContentPage({
                 title={row.title || "Untitled"}
                 status={row.status}
                 hook={script.hook || script.fullScript}
+                caption={script.caption}
                 platforms={row.platforms}
                 agent={row.assigned_agent}
-                videoUrl={row.video_url}
+                videoUrl={row.resolvedVideoUrl}
                 notionUrl={row.notion_page_url}
                 links={liveLinks(row.platform_links, row.review_notes)}
+                scheduledAt={row.scheduled_at}
+                suggestedTime={suggestedTime}
               />
             );
           })}

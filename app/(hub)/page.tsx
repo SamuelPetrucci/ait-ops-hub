@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
 import { SiteLink } from "@/components/site-link";
 import { requireOwner } from "@/lib/auth";
 import { readBufferTotals } from "@/lib/buffer";
-import { byContentRecency, liveLinks, scriptParts } from "@/lib/content";
+import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { addDays, formatWhen, nyToday } from "@/lib/format";
 import { LEAD_STAGES } from "@/lib/prospects";
 
@@ -36,14 +37,14 @@ export default async function OverviewPage() {
     supabase
       .from("content_queue")
       .select(
-        "id, content_id, title, status, platforms, assigned_agent, script_json, caption, video_url, notion_page_url, platform_links, review_notes, updated_at, created_at, scheduled_at, posted_at",
+        "id, content_id, title, status, platforms, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, updated_at, created_at, scheduled_at, posted_at",
       )
       .in("status", IN_MOTION)
       .order("updated_at", { ascending: false }),
     supabase
       .from("content_queue")
       .select(
-        "id, content_id, title, status, platforms, assigned_agent, script_json, caption, video_url, notion_page_url, platform_links, review_notes, posted_at, updated_at, created_at, scheduled_at",
+        "id, content_id, title, status, platforms, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, posted_at, updated_at, created_at, scheduled_at",
       )
       .eq("status", "posted")
       .order("posted_at", { ascending: false }),
@@ -65,9 +66,31 @@ export default async function OverviewPage() {
   }
 
   const dueRows = followUps.data ?? [];
-  const movingRows = [...(moving.data ?? [])].sort(byContentRecency).slice(0, 5);
-  const postedRows = [...(posted.data ?? [])].sort(byContentRecency).slice(0, 6);
+  const rawMovingRows = [...(moving.data ?? [])].sort(byContentRecency).slice(0, 5);
+  const rawPostedRows = [...(posted.data ?? [])].sort(byContentRecency).slice(0, 6);
   const upcomingRows = upcoming.data ?? [];
+
+  const [movingRows, postedRows, suggestedTime] = await Promise.all([
+    Promise.all(
+      rawMovingRows.map(async (row) => ({
+        ...row,
+        resolvedVideoUrl: await resolveVideoUrl({
+          video_url: row.video_url,
+          storage_path: row.storage_path,
+        }),
+      }))
+    ),
+    Promise.all(
+      rawPostedRows.map(async (row) => ({
+        ...row,
+        resolvedVideoUrl: await resolveVideoUrl({
+          video_url: row.video_url,
+          storage_path: row.storage_path,
+        }),
+      }))
+    ),
+    getNextFreeSlot(),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-7xl flex-col gap-8">
@@ -93,7 +116,8 @@ export default async function OverviewPage() {
           href="/content"
           label="Buffer views"
           value={compact(buffer.views)}
-          hint={`${buffer.engagementRate}% eng · ${inReview.count || 0} in review`}
+          hint={`${buffer.engagementRate}% eng`}
+          hintLink={inReview.count ? { href: "/approvals", text: `${inReview.count} in review` } : undefined}
         />
       </section>
 
@@ -211,11 +235,14 @@ export default async function OverviewPage() {
                         title={row.title || "Untitled"}
                         status={row.status}
                         hook={script.hook || script.fullScript}
+                        caption={script.caption}
                         platforms={row.platforms}
                         agent={row.assigned_agent}
-                        videoUrl={row.video_url}
+                        videoUrl={row.resolvedVideoUrl}
                         notionUrl={row.notion_page_url}
                         links={liveLinks(row.platform_links, row.review_notes)}
+                        scheduledAt={row.scheduled_at}
+                        suggestedTime={suggestedTime}
                       />
                     );
                   })}
@@ -243,11 +270,14 @@ export default async function OverviewPage() {
                         title={row.title || "Untitled"}
                         status={row.status}
                         hook={script.hook}
+                        caption={script.caption}
                         platforms={row.platforms}
                         agent={row.assigned_agent}
-                        videoUrl={row.video_url}
+                        videoUrl={row.resolvedVideoUrl}
                         notionUrl={row.notion_page_url}
                         links={liveLinks(row.platform_links, row.review_notes)}
+                        scheduledAt={row.scheduled_at}
+                        suggestedTime={suggestedTime}
                       />
                     );
                   })}
@@ -273,11 +303,13 @@ function Metric({
   label,
   value,
   hint,
+  hintLink,
 }: {
   href: string;
   label: string;
   value: string;
   hint?: string;
+  hintLink?: { href: string; text: string };
 }) {
   return (
     <Link
@@ -286,7 +318,21 @@ function Metric({
     >
       <p className="text-[11px] tracking-[0.14em] text-muted-foreground uppercase">{label}</p>
       <p className="mt-2 text-2xl font-medium tracking-tight tabular-nums md:text-3xl">{value}</p>
-      {hint ? <p className="mt-1 truncate text-xs text-muted-foreground">{hint}</p> : null}
+      {hint || hintLink ? (
+        <p className="mt-1 truncate text-xs text-muted-foreground">
+          {hint}
+          {hint && hintLink ? " · " : ""}
+          {hintLink ? (
+            <Link
+              href={hintLink.href}
+              className="text-amber-300/90 hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {hintLink.text}
+            </Link>
+          ) : null}
+        </p>
+      ) : null}
     </Link>
   );
 }

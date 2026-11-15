@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { Badge } from "@/components/ui/badge";
+import { getNextFreeSlot } from "@/app/actions/mutations";
+import { ContentStatusSelect, ScheduleInBuffer } from "@/components/content-controls";
 import { requireOwner } from "@/lib/auth";
-import { liveLinks, scriptParts } from "@/lib/content";
-import { formatWhen, labelize } from "@/lib/format";
+import { liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
+import { formatWhen } from "@/lib/format";
 
 export const metadata = { title: "Viewer" };
 
@@ -26,6 +27,13 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
   const platforms = (data.platforms || []) as string[];
   const sources = ((data.source_urls || []) as string[]).filter(Boolean);
   const readable = readableScript(script.fullScript);
+  const [videoUrl, suggestedTime] = await Promise.all([
+    resolveVideoUrl({
+      video_url: data.video_url,
+      storage_path: data.storage_path,
+    }),
+    getNextFreeSlot(),
+  ]);
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -44,17 +52,15 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
               .join(" · ") || "Unassigned"}
           </p>
         </div>
-        <Badge variant="outline" className="capitalize">
-          {labelize(data.status)}
-        </Badge>
+        <ContentStatusSelect id={data.id} currentStatus={data.status} />
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,0.85fr)]">
         <section className="overflow-hidden rounded-3xl bg-black ring-1 ring-foreground/10">
-          {data.video_url ? (
+          {videoUrl ? (
             <video
-              key={data.video_url}
-              src={data.video_url}
+              key={videoUrl}
+              src={videoUrl}
               controls
               playsInline
               preload="metadata"
@@ -66,8 +72,8 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
             </div>
           )}
           <div className="flex flex-wrap gap-x-4 gap-y-2 border-t border-white/10 px-4 py-3 text-sm">
-            {data.video_url ? (
-              <a href={data.video_url} target="_blank" rel="noreferrer" className="text-amber-200 hover:underline">
+            {videoUrl ? (
+              <a href={videoUrl} target="_blank" rel="noreferrer" className="text-amber-200 hover:underline">
                 Open video file
               </a>
             ) : null}
@@ -107,11 +113,22 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
           ) : null}
 
           <dl className="grid grid-cols-2 gap-3 rounded-2xl bg-card px-4 py-3 text-sm ring-1 ring-foreground/10">
+            <Fact label="Status" value={data.status.replace(/_/g, " ")} />
             <Fact label="Scheduled" value={formatWhen(data.scheduled_at)} />
             <Fact label="Posted" value={formatWhen(data.posted_at)} />
             <Fact label="Approved by" value={data.approved_by || "—"} />
             <Fact label="Reviewed" value={formatWhen(data.reviewed_at)} />
           </dl>
+
+          {data.status === "approved" ? (
+            <ScheduleInBuffer
+              id={data.id}
+              videoUrl={videoUrl}
+              caption={script.caption}
+              hook={script.hook}
+              suggestedTime={suggestedTime}
+            />
+          ) : null}
         </aside>
       </div>
 
