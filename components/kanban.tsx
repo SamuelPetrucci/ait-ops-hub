@@ -58,7 +58,7 @@ export function Kanban({
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      <div className="flex gap-3 overflow-x-auto pb-4" aria-busy={pending}>
+      <div className="flex snap-x snap-mandatory gap-2 overflow-x-auto pb-4 sm:gap-3 sm:snap-none" aria-busy={pending}>
         {columns.map((column) => (
           <Column
             key={column.id}
@@ -77,7 +77,7 @@ function Column({ id, title, items }: { id: string; title: string; items: Kanban
   return (
     <section
       ref={setNodeRef}
-      className={`flex w-72 shrink-0 flex-col rounded-xl bg-muted/40 p-2 ring-1 ring-foreground/10 ${isOver ? "bg-primary/10" : ""}`}
+      className={`flex w-64 shrink-0 snap-start flex-col rounded-xl bg-muted/40 p-2 ring-1 ring-foreground/10 sm:w-72 sm:snap-align-none ${isOver ? "bg-primary/10" : ""}`}
     >
       <header className="flex items-center justify-between px-1 py-1.5">
         <h2 className="text-xs font-medium tracking-wide text-muted-foreground uppercase">{title}</h2>

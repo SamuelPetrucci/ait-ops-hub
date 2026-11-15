@@ -69,6 +69,7 @@ export function ProspectMapView({
     minScore: 0,
   });
   const [showRoutes, setShowRoutes] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>("miles_from_home");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -217,9 +218,29 @@ export function ProspectMapView({
     });
   };
 
+  const hasActiveFilters = filters.stage || filters.routeId || filters.category || filters.town || filters.maxDistance !== 50 || filters.minScore !== 0;
+
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <div className="grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="flex items-center justify-between sm:hidden">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setShowFilters(!showFilters)}
+          className="gap-2"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+          </svg>
+          Filters
+          {hasActiveFilters && <span className="size-2 rounded-full bg-signal" />}
+        </Button>
+        <span className="text-xs text-muted-foreground">
+          {filteredProspects.length} shown
+        </span>
+      </div>
+
+      <div className={`grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 ${showFilters ? "" : "hidden sm:grid"}`}>
         <div>
           <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Stage</label>
           <select

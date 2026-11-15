@@ -43,10 +43,10 @@ export default async function ApprovalsPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 sm:gap-6">
       <header>
         <p className="text-[11px] tracking-[0.16em] text-muted-foreground uppercase">Review</p>
-        <h1 className="mt-1 text-3xl font-medium tracking-tight">Approvals</h1>
+        <h1 className="mt-1 text-2xl font-medium tracking-tight sm:text-3xl">Approvals</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           Review clips before they go live. Approve to move to approved, or reject to skip.
         </p>
