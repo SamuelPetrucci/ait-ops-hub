@@ -1,27 +1,36 @@
 import Link from "next/link";
 import { getNextFreeSlot } from "@/app/actions/mutations";
-import { ContentBoard } from "@/components/boards";
 import { BufferRefresh } from "@/components/buffer-refresh";
+import { NicheFilterSelect } from "@/components/content-filters";
 import { ContentPiece } from "@/components/content-piece";
 import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
 import { bufferConfigured, fetchBufferCalendarPosts, readBufferTotals } from "@/lib/buffer";
-import { CONTENT_COLUMNS } from "@/lib/constants";
 import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { formatWhen, nestedString, nyToday } from "@/lib/format";
+import {
+  CONTENT_GROUP_ORDER,
+  CONTENT_STATUS_GROUPS,
+  getContentGroupFromStatus,
+  type ContentStatusGroup,
+} from "@/lib/status-groups";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 
 export const metadata = { title: "Content" };
 
-const STATUSES = CONTENT_COLUMNS.map(([id]) => id);
+const FILTER_GROUPS = CONTENT_GROUP_ORDER.filter(
+  (group): group is Exclude<ContentStatusGroup, "rejected"> => group !== "rejected",
+);
 
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; month?: string; niche?: string }>;
+  searchParams: Promise<{ group?: string; month?: string; niche?: string }>;
 }) {
   const params = await searchParams;
-  const status = STATUSES.includes(params.status as (typeof STATUSES)[number]) ? params.status : "";
+  const group = (FILTER_GROUPS as string[]).includes(params.group || "")
+    ? (params.group as Exclude<ContentStatusGroup, "rejected">)
+    : "";
   const month =
     params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : nyToday().slice(0, 7);
   const niche = params.niche || "";
@@ -50,10 +59,11 @@ export default async function ContentPage({
   if (performance.error) throw new Error(performance.error.message);
 
   const rawRows = [...(queue.data ?? [])].sort(byContentRecency);
-  const statusCounts = new Map<string, number>();
+  const groupCounts = new Map<ContentStatusGroup, number>();
   const nicheCounts = new Map<string, number>();
   for (const row of rawRows) {
-    statusCounts.set(row.status, (statusCounts.get(row.status) || 0) + 1);
+    const bucket = getContentGroupFromStatus(row.status);
+    groupCounts.set(bucket, (groupCounts.get(bucket) || 0) + 1);
     if (row.content_pillar) {
       nicheCounts.set(row.content_pillar, (nicheCounts.get(row.content_pillar) || 0) + 1);
     }
@@ -67,20 +77,28 @@ export default async function ContentPage({
         video_url: row.video_url,
         storage_path: row.storage_path,
       }),
-    }))
+    })),
   );
 
   const visible = rows.filter((row) => {
-    if (status && row.status !== status) return false;
+    if (group && getContentGroupFromStatus(row.status) !== group) return false;
     if (niche && row.content_pillar !== niche) return false;
     return true;
   });
-  const reading = status || niche
-    ? visible
-    : visible
-        .filter((row) => row.status !== "posted" && row.status !== "skipped" && row.status !== "rejected")
-        .sort((a, b) => actionRank(a.status) - actionRank(b.status));
-  const statusFilters = CONTENT_COLUMNS.filter(([id]) => id === status || (statusCounts.get(id) || 0) > 0);
+  const reading =
+    group || niche
+      ? visible
+      : visible
+          .filter((row) => {
+            const bucket = getContentGroupFromStatus(row.status);
+            return bucket === "needs_review" || bucket === "approved" || bucket === "in_progress";
+          })
+          .sort((a, b) => actionRank(a.status) - actionRank(b.status));
+
+  const needsAttentionCount = rows.filter((row) => {
+    const bucket = getContentGroupFromStatus(row.status);
+    return bucket === "needs_review" || bucket === "approved" || bucket === "in_progress";
+  }).length;
   const needsSchedule = rows.filter((row) => row.status === "approved" && !row.scheduled_at).length;
   const byCode = new Map(
     rows
@@ -110,9 +128,9 @@ export default async function ContentPage({
             <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Library</p>
             <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Content</h1>
             <p className="mt-1 text-sm text-ink-soft">
-              Approve, schedule with a caption, then watch the live Buffer calendar
+              Approve, schedule, then watch the Buffer calendar
               {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
-              {buffer.syncedAt ? ` · Buffer synced ${formatWhen(buffer.syncedAt)}` : ""}.
+              {buffer.syncedAt ? ` · synced ${formatWhen(buffer.syncedAt)}` : ""}.
             </p>
           </div>
           <BufferRefresh configured={buffer.configured || bufferConfigured()} />
@@ -126,38 +144,25 @@ export default async function ContentPage({
         <Stat label="Eng. rate" value={`${buffer.engagementRate || 0}%`} />
       </section>
 
-      <div className="flex flex-wrap gap-2 pb-1">
+      <div className="flex flex-wrap items-center gap-2">
         <Filter
           href={buildContentUrl({ month, niche })}
-          active={!status}
-          label="Active"
-          count={rows.filter((row) => row.status !== "posted" && row.status !== "skipped").length}
+          active={!group}
+          label="Needs attention"
+          count={needsAttentionCount}
         />
-        {statusFilters.map(([id, label]) => (
+        {FILTER_GROUPS.map((id) => (
           <Filter
             key={id}
-            href={buildContentUrl({ status: id, month, niche })}
-            active={status === id}
-            label={label}
-            count={statusCounts.get(id) || 0}
+            href={buildContentUrl({ group: id, month, niche })}
+            active={group === id}
+            label={CONTENT_STATUS_GROUPS[id].label}
+            count={groupCounts.get(id) || 0}
           />
         ))}
-        <span className="mx-1 border-l border-foreground/10" />
-        <Filter
-          href={buildContentUrl({ status, month })}
-          active={!niche}
-          label="All niches"
-          count={rows.length}
-        />
-        {nicheOptions.map((n) => (
-          <Filter
-            key={n}
-            href={buildContentUrl({ status, month, niche: n })}
-            active={niche === n}
-            label={n}
-            count={nicheCounts.get(n) || 0}
-          />
-        ))}
+        {nicheOptions.length > 0 ? (
+          <NicheFilterSelect month={month} group={group} niche={niche} options={nicheOptions} />
+        ) : null}
       </div>
 
       <PostCalendar
@@ -166,7 +171,7 @@ export default async function ContentPage({
         source="buffer"
         configured={buffer.configured || bufferConfigured()}
         query={{
-          ...(status ? { status } : {}),
+          ...(group ? { group } : {}),
           month,
           ...(niche ? { niche } : {}),
         }}
@@ -175,17 +180,17 @@ export default async function ContentPage({
       <section className="flex flex-col gap-3">
         <div className="flex items-end justify-between gap-3">
           <h2 className="font-display text-sm font-semibold text-ink">
-            {status ? "Watch & read" : "Needs attention"}
+            {group ? CONTENT_STATUS_GROUPS[group].label : "Needs attention"}
           </h2>
-          {!status ? (
+          {!group ? (
             <Link href="/approvals" className="text-xs text-signal hover:underline">
               Open approvals
             </Link>
           ) : null}
         </div>
-        {reading.length === 0 ? <p className="text-sm text-ink-soft">Nothing in this status.</p> : null}
+        {reading.length === 0 ? <p className="text-sm text-ink-soft">Nothing in this view.</p> : null}
         <div className="flex flex-col gap-3">
-          {(status || niche ? reading : reading.slice(0, 8)).map((row) => {
+          {(group || niche ? reading : reading.slice(0, 8)).map((row) => {
             const script = scriptParts(row.script_json, row.caption);
             return (
               <ContentPiece
@@ -208,23 +213,6 @@ export default async function ContentPage({
             );
           })}
         </div>
-      </section>
-
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">Move status</h2>
-        <ContentBoard
-          items={reading.map((row) => {
-            const script = scriptParts(row.script_json, row.caption);
-            const hook = script.hook.length > 90 ? `${script.hook.slice(0, 90)}…` : script.hook;
-            return {
-              id: row.id,
-              column: row.status,
-              title: row.title || "Untitled",
-              href: `/content/${row.id}`,
-              meta: [row.content_id, hook].filter(Boolean).join(" · "),
-            };
-          })}
-        />
       </section>
 
       <section className="flex flex-col gap-2">
@@ -284,14 +272,22 @@ export default async function ContentPage({
 function actionRank(status: string) {
   if (status === "in_review") return 0;
   if (status === "approved") return 1;
-  if (status === "scheduled") return 2;
-  if (status === "changes_requested") return 3;
+  if (status === "changes_requested") return 2;
+  if (status === "scripting" || status === "rendering") return 3;
   return 4;
 }
 
-function buildContentUrl({ status, month, niche }: { status?: string; month?: string; niche?: string }) {
+function buildContentUrl({
+  group,
+  month,
+  niche,
+}: {
+  group?: string;
+  month?: string;
+  niche?: string;
+}) {
   const params = new URLSearchParams();
-  if (status) params.set("status", status);
+  if (group) params.set("group", group);
   if (month) params.set("month", month);
   if (niche) params.set("niche", niche);
   const query = params.toString();
