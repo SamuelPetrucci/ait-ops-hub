@@ -18,6 +18,7 @@ import {
 } from "@/lib/sales-tactics";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
+import { AreaDiscovery } from "@/components/area-discovery";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import type { MappedProspect, ProspectMapFilters, RouteInfo, UnmappedProspect } from "@/lib/prospect-map";
 
@@ -222,6 +223,8 @@ export function ProspectMapView({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
+      <AreaDiscovery />
+
       <div className="flex items-center justify-between sm:hidden">
         <Button
           variant="outline"
