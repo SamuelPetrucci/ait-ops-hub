@@ -15,6 +15,21 @@ type SearchProgress = DiscoverProgress & {
   startedAt: number;
 };
 
+export type AreaDiscoveryPin = {
+  lat: number;
+  lng: number;
+};
+
+type AreaDiscoveryProps = {
+  pin?: AreaDiscoveryPin | null;
+  pinRadiusMiles?: number;
+  /** Increment to trigger a pin-based search from the map */
+  pinSearchNonce?: number;
+  onSearchingChange?: (searching: boolean) => void;
+  onResultsChange?: (businesses: DiscoveredBusiness[]) => void;
+  onOpenChange?: (open: boolean) => void;
+};
+
 const STAGE_ORDER: DiscoverProgress["stage"][] = [
   "geocode",
   "overpass",
@@ -31,7 +46,14 @@ function formatElapsed(ms: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
 }
 
-export function AreaDiscovery() {
+export function AreaDiscovery({
+  pin = null,
+  pinRadiusMiles = 8,
+  pinSearchNonce = 0,
+  onSearchingChange,
+  onResultsChange,
+  onOpenChange,
+}: AreaDiscoveryProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [locationQuery, setLocationQuery] = useState("Groton, CT");
@@ -48,6 +70,14 @@ export function AreaDiscovery() {
   const [progress, setProgress] = useState<SearchProgress | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const abortRef = useRef<AbortController | null>(null);
+  const lastPinNonce = useRef(0);
+  const categoryIdsRef = useRef(categoryIds);
+  const sizeBucketsRef = useRef(sizeBuckets);
+  const enrichWebsitesRef = useRef(enrichWebsites);
+
+  categoryIdsRef.current = categoryIds;
+  sizeBucketsRef.current = sizeBuckets;
+  enrichWebsitesRef.current = enrichWebsites;
 
   useEffect(() => {
     if (!searching || !progress) return;
@@ -56,6 +86,19 @@ export function AreaDiscovery() {
     const id = window.setInterval(tick, 250);
     return () => window.clearInterval(id);
   }, [searching, progress]);
+
+  useEffect(() => {
+    onSearchingChange?.(searching);
+  }, [searching, onSearchingChange]);
+
+  useEffect(() => {
+    onResultsChange?.(results);
+  }, [results, onResultsChange]);
+
+  const setPanelOpen = (next: boolean) => {
+    setOpen(next);
+    onOpenChange?.(next);
+  };
 
   const toggleCategory = (id: string) => {
     setCategoryIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -73,21 +116,37 @@ export function AreaDiscovery() {
     });
   }, [results, categoryIds, sizeBuckets]);
 
-  const handleDiscover = async () => {
+  const runDiscover = async (opts?: {
+    lat?: number;
+    lng?: number;
+    radiusMiles?: number;
+    locationQuery?: string;
+  }) => {
+    const cats = categoryIdsRef.current;
+    if (cats.length === 0) {
+      setMessage("Pick at least one industry / service");
+      return;
+    }
+
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     const startedAt = Date.now();
+    const usingPin = opts?.lat != null && opts?.lng != null;
+    const queryLabel = opts?.locationQuery || locationQuery;
+    const miles = opts?.radiusMiles ?? radiusMiles;
+
     setMessage(null);
     setMeta(null);
     setSearching(true);
+    setPanelOpen(true);
     setElapsedMs(0);
     setProgress({
       stage: "geocode",
-      label: `Locating ${locationQuery.trim() || "area"}…`,
+      label: usingPin ? "Reading pinned area…" : `Locating ${queryLabel.trim() || "area"}…`,
       percent: 4,
-      detail: "Starting search",
+      detail: usingPin ? "Uber-style pin search" : "Starting search",
       startedAt,
     });
 
@@ -96,11 +155,13 @@ export function AreaDiscovery() {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "application/x-ndjson" },
         body: JSON.stringify({
-          locationQuery,
-          radiusMiles,
-          categoryIds,
-          sizeBuckets,
-          enrichWebsites,
+          locationQuery: queryLabel,
+          radiusMiles: miles,
+          categoryIds: cats,
+          sizeBuckets: sizeBucketsRef.current,
+          enrichWebsites: enrichWebsitesRef.current,
+          lat: opts?.lat,
+          lng: opts?.lng,
         }),
         signal: controller.signal,
       });
@@ -158,6 +219,11 @@ export function AreaDiscovery() {
         throw new Error("Search ended without results");
       }
 
+      if (usingPin) {
+        setRadiusMiles(miles);
+        setLocationQuery(finalResult.center.label);
+      }
+
       setResults(finalResult.businesses);
       setSelected(new Set(finalResult.businesses.slice(0, 25).map((b) => b.osmKey)));
       setMeta(
@@ -186,6 +252,19 @@ export function AreaDiscovery() {
       if (abortRef.current === controller) abortRef.current = null;
     }
   };
+
+  useEffect(() => {
+    if (!pinSearchNonce || pinSearchNonce === lastPinNonce.current) return;
+    if (!pin) return;
+    lastPinNonce.current = pinSearchNonce;
+    void runDiscover({
+      lat: pin.lat,
+      lng: pin.lng,
+      radiusMiles: pinRadiusMiles,
+      locationQuery: `Pinned ${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional trigger on nonce
+  }, [pinSearchNonce, pin, pinRadiusMiles]);
 
   const handleCancelSearch = () => {
     abortRef.current?.abort();
@@ -246,6 +325,7 @@ export function AreaDiscovery() {
 
   const busy = searching || isPending;
   const progressPercent = Math.min(100, Math.max(0, progress?.percent ?? 0));
+  const pinActive = Boolean(pin);
 
   return (
     <Card>
@@ -254,16 +334,23 @@ export function AreaDiscovery() {
           <div>
             <CardTitle className="text-base sm:text-lg">Discover area (free)</CardTitle>
             <p className="mt-1 text-xs text-muted-foreground">
-              OpenStreetMap + Wikidata — no Apify runs. Filter by industry, service niche, and estimated size.
+              Drop a pin on the map (Uber-style) or search by town. OpenStreetMap + Wikidata — no Apify.
             </p>
           </div>
-          <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
+          <Button size="sm" variant="ghost" onClick={() => setPanelOpen(!open)}>
             {open ? "Hide" : "Show"}
           </Button>
         </div>
       </CardHeader>
       {open ? (
         <CardContent className="space-y-4">
+          {pinActive ? (
+            <div className="rounded-xl bg-signal/10 px-3 py-2 text-xs ring-1 ring-signal/30">
+              Map pin active · {pin!.lat.toFixed(4)}, {pin!.lng.toFixed(4)} · {pinRadiusMiles} mi radius. Use{" "}
+              <strong>Search this area</strong> on the map, or search by town below.
+            </div>
+          ) : null}
+
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             <div className="sm:col-span-2 lg:col-span-1">
               <label className="mb-1 block text-xs text-muted-foreground">Town / area</label>
@@ -346,9 +433,30 @@ export function AreaDiscovery() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" onClick={handleDiscover} disabled={busy || categoryIds.length === 0}>
-              {searching ? "Searching…" : "Search OpenStreetMap"}
+            <Button
+              size="sm"
+              onClick={() => void runDiscover()}
+              disabled={busy || categoryIds.length === 0}
+            >
+              {searching ? "Searching…" : "Search by town"}
             </Button>
+            {pinActive ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() =>
+                  void runDiscover({
+                    lat: pin!.lat,
+                    lng: pin!.lng,
+                    radiusMiles: pinRadiusMiles,
+                    locationQuery: `Pinned ${pin!.lat.toFixed(4)}, ${pin!.lng.toFixed(4)}`,
+                  })
+                }
+                disabled={busy || categoryIds.length === 0}
+              >
+                Search map pin
+              </Button>
+            ) : null}
             {searching ? (
               <Button size="sm" variant="outline" onClick={handleCancelSearch}>
                 Cancel

@@ -111,13 +111,36 @@ function buildOverpassQuery(lat: number, lng: number, radiusMeters: number, tags
   return `[out:json][timeout:60];(${parts.join("")});out center tags;`;
 }
 
+async function reverseGeocode(lat: number, lng: number): Promise<string | null> {
+  try {
+    const params = new URLSearchParams({
+      lat: String(lat),
+      lon: String(lng),
+      format: "json",
+      zoom: "14",
+      addressdetails: "0",
+    });
+    const response = await fetch(`https://nominatim.openstreetmap.org/reverse?${params}`, {
+      headers: { "User-Agent": USER_AGENT, Accept: "application/json" },
+      cache: "no-store",
+    });
+    if (!response.ok) return null;
+    const payload = (await response.json()) as { display_name?: string };
+    return payload.display_name || null;
+  } catch {
+    return null;
+  }
+}
+
 async function resolveLocation(
   locationQuery: string,
   lat?: number,
   lng?: number,
 ): Promise<{ lat: number; lng: number; label: string }> {
   if (lat != null && lng != null && Number.isFinite(lat) && Number.isFinite(lng)) {
-    return { lat, lng, label: locationQuery || `${lat.toFixed(4)}, ${lng.toFixed(4)}` };
+    const reversed = await reverseGeocode(lat, lng);
+    const fallback = locationQuery.trim() || `Pinned ${lat.toFixed(4)}, ${lng.toFixed(4)}`;
+    return { lat, lng, label: reversed || fallback };
   }
 
   const q = locationQuery.trim() || "Groton, CT";

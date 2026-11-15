@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useTransition } from "react";
+import { useState, useMemo, useTransition, useCallback } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,7 +20,9 @@ import { buildDaySalesPlan, type DaySalesPlan } from "@/lib/day-plan";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
 import { AreaDiscovery } from "@/components/area-discovery";
+import type { PreviewBusiness } from "@/components/prospect-map-client";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
+import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import type { MappedProspect, ProspectMapFilters, RouteInfo, UnmappedProspect } from "@/lib/prospect-map";
 
 const ProspectMapClient = dynamic(() => import("./prospect-map-client").then((m) => m.ProspectMapClient), {
@@ -82,6 +84,31 @@ export function ProspectMapView({
   const [dayPlan, setDayPlan] = useState<DaySalesPlan | null>(null);
   const [maxDayStops, setMaxDayStops] = useState(8);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+
+  const [pinMode, setPinMode] = useState(false);
+  const [pin, setPin] = useState<{ lat: number; lng: number } | null>(null);
+  const [pinRadiusMiles, setPinRadiusMiles] = useState(8);
+  const [pinSearchNonce, setPinSearchNonce] = useState(0);
+  const [pinSearching, setPinSearching] = useState(false);
+  const [previewBusinesses, setPreviewBusinesses] = useState<PreviewBusiness[]>([]);
+
+  const handleDiscoveryResults = useCallback((businesses: DiscoveredBusiness[]) => {
+    setPreviewBusinesses(
+      businesses.slice(0, 80).map((b) => ({
+        osmKey: b.osmKey,
+        company: b.company,
+        lat: b.lat,
+        lng: b.lng,
+        city: b.city,
+        industry: b.industry,
+        sizeBucket: b.sizeBucket,
+      })),
+    );
+  }, []);
+
+  const handleSearchingChange = useCallback((value: boolean) => {
+    setPinSearching(value);
+  }, []);
 
   const handleFilterChange = (partial: Partial<ProspectMapFilters>) => {
     setFilters((prev) => ({ ...prev, ...partial }));
@@ -287,8 +314,6 @@ export function ProspectMapView({
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
-      <AreaDiscovery />
-
       <div className="flex items-center justify-between sm:hidden">
         <Button
           variant="outline"
@@ -402,6 +427,26 @@ export function ProspectMapView({
         selectedIds={selectedIds}
         onToggleSelect={toggleSelect}
         plannedRoute={plannedRoute?.ordered || []}
+        pinMode={pinMode}
+        onPinModeChange={setPinMode}
+        pin={pin}
+        onPinChange={setPin}
+        pinRadiusMiles={pinRadiusMiles}
+        onPinRadiusChange={setPinRadiusMiles}
+        onSearchPinArea={() => {
+          if (!pin) return;
+          setPinSearchNonce((n) => n + 1);
+        }}
+        pinSearching={pinSearching}
+        previewBusinesses={previewBusinesses}
+      />
+
+      <AreaDiscovery
+        pin={pin}
+        pinRadiusMiles={pinRadiusMiles}
+        pinSearchNonce={pinSearchNonce}
+        onSearchingChange={handleSearchingChange}
+        onResultsChange={handleDiscoveryResults}
       />
 
       <div className="grid gap-4 lg:grid-cols-2">

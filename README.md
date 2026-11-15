@@ -53,7 +53,7 @@ Open **Profile** or **Integrations** from the account menu. The hub pings Supaba
 
 ## Area discovery (free)
 
-Sales Map → **Discover area** pulls local businesses from OpenStreetMap via Overpass (no Apify / Google Places). Filter by industry/service niche and estimated company size (Wikidata headcount when tagged, otherwise OSM heuristics; optional free website sniff). Import selected rows into `prospects`.
+Sales Map supports Uber-style **pin search**: turn Pin search on, tap/drag the pin, set the radius, and hit **Search this area**. You can also search by town name. Both pull local businesses from OpenStreetMap via Overpass (no Apify / Google Places). Filter by industry/service niche and estimated company size (Wikidata headcount when tagged, otherwise OSM heuristics; optional free website sniff). Import selected rows into `prospects`. Live progress streams from `/api/discover`.
 
 Apply `supabase/migrations/20261115090000_prospect_discovery.sql` in the Supabase SQL editor so `osm_id`, `company_size_bucket`, and `discovery_source` exist. Import still works without it, but dedupe by OSM id is weaker until the migration is applied.
 

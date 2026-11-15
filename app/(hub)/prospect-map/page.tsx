@@ -77,8 +77,8 @@ export default async function ProspectMapPage() {
       <div className="mb-4 sm:mb-6">
         <h1 className="text-2xl font-medium tracking-tight sm:text-3xl">Sales Map</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          {mapped.length} mapped, {unmapped.length} need coordinates. Home: Groton, CT. Discover an area, then use{" "}
-          <strong>Plan my day</strong> for a stop order with conversation, card-drop, pain-point, and call-booking scripts.
+          {mapped.length} mapped, {unmapped.length} need coordinates. Home: Groton, CT. Drop a pin on the map
+          (Uber-style) to scrape nearby businesses, then <strong>Plan my day</strong> for stop scripts.
         </p>
       </div>
       <ProspectMapView

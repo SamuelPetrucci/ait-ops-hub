@@ -1,11 +1,22 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Marker,
+  Popup,
+  Circle,
+  Polyline,
+  useMap,
+  useMapEvents,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Slider } from "@/components/ui/slider";
 import { labelize } from "@/lib/format";
 import type { MappedProspect, ProspectMapFilters, RouteInfo } from "@/lib/prospect-map";
 
@@ -57,15 +68,54 @@ const homeIcon = L.divIcon({
   popupAnchor: [0, -32],
 });
 
+const pinIcon = L.divIcon({
+  html: `<div style="position:relative;width:28px;height:40px;">
+    <div style="width:28px;height:28px;border-radius:50% 50% 50% 0;background:#0f766e;transform:rotate(-45deg);border:2px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);"></div>
+    <div style="position:absolute;top:7px;left:7px;width:14px;height:14px;border-radius:50%;background:#ecfdf5;transform:rotate(0deg);"></div>
+  </div>`,
+  className: "search-pin-marker",
+  iconSize: [28, 40],
+  iconAnchor: [14, 40],
+  popupAnchor: [0, -36],
+});
+
+const previewIcon = L.divIcon({
+  html: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#0f766e" width="20" height="20">
+    <circle cx="12" cy="12" r="8" fill="#0f766e" stroke="#fff" stroke-width="2"/>
+  </svg>`,
+  className: "preview-marker",
+  iconSize: [20, 20],
+  iconAnchor: [10, 10],
+  popupAnchor: [0, -10],
+});
+
 function truncate(text: string | null | undefined, maxLength: number): string {
   if (!text) return "";
   return text.length > maxLength ? text.slice(0, maxLength) + "…" : text;
 }
 
-function FitBounds({ prospects }: { prospects: MappedProspect[] }) {
+function FitBounds({
+  prospects,
+  pinMode,
+  pin,
+  pinRadiusMiles,
+}: {
+  prospects: MappedProspect[];
+  pinMode: boolean;
+  pin: { lat: number; lng: number } | null;
+  pinRadiusMiles: number;
+}) {
   const map = useMap();
 
   useEffect(() => {
+    if (pinMode && pin) {
+      const bounds = L.latLngBounds([[pin.lat, pin.lng]]);
+      const padDeg = pinRadiusMiles / 69;
+      bounds.extend([pin.lat + padDeg, pin.lng + padDeg]);
+      bounds.extend([pin.lat - padDeg, pin.lng - padDeg]);
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 13 });
+      return;
+    }
     if (prospects.length === 0) {
       map.setView(HOME_POSITION, 10);
       return;
@@ -75,10 +125,41 @@ function FitBounds({ prospects }: { prospects: MappedProspect[] }) {
       bounds.extend([p.lat, p.lng]);
     }
     map.fitBounds(bounds, { padding: [50, 50] });
-  }, [map, prospects]);
+  }, [map, prospects, pinMode, pin, pinRadiusMiles]);
 
   return null;
 }
+
+function MapClickHandler({
+  enabled,
+  onPlacePin,
+}: {
+  enabled: boolean;
+  onPlacePin: (lat: number, lng: number) => void;
+}) {
+  useMapEvents({
+    click(e) {
+      if (!enabled) return;
+      onPlacePin(e.latlng.lat, e.latlng.lng);
+    },
+  });
+  return null;
+}
+
+export type MapPin = {
+  lat: number;
+  lng: number;
+};
+
+export type PreviewBusiness = {
+  osmKey: string;
+  company: string;
+  lat: number;
+  lng: number;
+  city: string | null;
+  industry: string;
+  sizeBucket: string;
+};
 
 type PlannedStop = {
   id: string;
@@ -99,6 +180,15 @@ type ProspectMapProps = {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   plannedRoute: PlannedStop[];
+  pinMode: boolean;
+  onPinModeChange: (active: boolean) => void;
+  pin: MapPin | null;
+  onPinChange: (pin: MapPin | null) => void;
+  pinRadiusMiles: number;
+  onPinRadiusChange: (miles: number) => void;
+  onSearchPinArea: () => void;
+  pinSearching: boolean;
+  previewBusinesses: PreviewBusiness[];
 };
 
 export function ProspectMapClient({
@@ -111,6 +201,15 @@ export function ProspectMapClient({
   selectedIds,
   onToggleSelect,
   plannedRoute,
+  pinMode,
+  onPinModeChange,
+  pin,
+  onPinChange,
+  pinRadiusMiles,
+  onPinRadiusChange,
+  onSearchPinArea,
+  pinSearching,
+  previewBusinesses,
 }: ProspectMapProps) {
   const filteredProspects = useMemo(() => {
     return prospects.filter((p) => {
@@ -152,120 +251,262 @@ export function ProspectMapClient({
   return (
     <div className="grid gap-4 lg:grid-cols-[1fr_280px]">
       <div className="flex flex-col gap-4">
-        <MapContainer
-          center={HOME_POSITION}
-          zoom={10}
-          className="h-[400px] rounded-xl ring-1 ring-foreground/10 sm:h-[500px] lg:h-[600px]"
-          scrollWheelZoom
-        >
-          <TileLayer
-            attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
-            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          />
-
-          <FitBounds prospects={filteredProspects} />
-
-          {DISTANCE_RINGS.map((miles) => (
-            <Circle
-              key={miles}
-              center={HOME_POSITION}
-              radius={miles * MILE_TO_METERS}
-              pathOptions={{
-                color: "rgba(251, 191, 36, 0.5)",
-                fillColor: "rgba(251, 191, 36, 0.05)",
-                weight: 1,
-                dashArray: "4 4",
-              }}
+        <div className="relative">
+          <MapContainer
+            center={HOME_POSITION}
+            zoom={10}
+            className={`h-[400px] rounded-xl ring-1 ring-foreground/10 sm:h-[500px] lg:h-[600px] ${
+              pinMode ? "cursor-crosshair" : ""
+            }`}
+            scrollWheelZoom
+          >
+            <TileLayer
+              attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+              url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
             />
-          ))}
 
-          <Marker position={HOME_POSITION} icon={homeIcon}>
-            <Popup>
-              <strong>Home Base</strong>
-              <br />
-              Groton, CT
-            </Popup>
-          </Marker>
-
-          {plannedRoutePolyline.length > 0 && (
-            <Polyline
-              positions={plannedRoutePolyline}
-              pathOptions={{ color: "#10b981", weight: 4, opacity: 0.8, dashArray: "10 5" }}
+            <FitBounds
+              prospects={filteredProspects}
+              pinMode={pinMode}
+              pin={pin}
+              pinRadiusMiles={pinRadiusMiles}
             />
-          )}
+            <MapClickHandler
+              enabled={pinMode}
+              onPlacePin={(lat, lng) => onPinChange({ lat, lng })}
+            />
 
-          {filteredProspects.map((prospect) => {
-            const isSelected = selectedIds.has(prospect.id);
-            return (
-            <Marker
-              key={prospect.id}
-              position={[prospect.lat, prospect.lng]}
-              icon={createColoredIcon(isSelected ? "#10b981" : getStageColor(prospect.stage))}
-              eventHandlers={{
-                click: () => onToggleSelect(prospect.id),
-              }}
-            >
+            {!pinMode &&
+              DISTANCE_RINGS.map((miles) => (
+                <Circle
+                  key={miles}
+                  center={HOME_POSITION}
+                  radius={miles * MILE_TO_METERS}
+                  pathOptions={{
+                    color: "rgba(251, 191, 36, 0.5)",
+                    fillColor: "rgba(251, 191, 36, 0.05)",
+                    weight: 1,
+                    dashArray: "4 4",
+                  }}
+                />
+              ))}
+
+            <Marker position={HOME_POSITION} icon={homeIcon}>
               <Popup>
-                <div className="min-w-[200px] space-y-1">
-                  <Link href={`/companies/${prospect.id}`} className="font-semibold text-primary hover:underline">
-                    {prospect.company}
-                  </Link>
-                  <div className="flex flex-wrap gap-1">
-                    <Badge variant="outline" className="text-xs">
-                      {labelize(prospect.stage)}
-                    </Badge>
-                    {prospect.industry && (
-                      <Badge variant="secondary" className="text-xs">
-                        {prospect.industry}
-                      </Badge>
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    {[prospect.city, prospect.region].filter(Boolean).join(", ")}
-                  </p>
-                  {prospect.website && (
-                    <p className="text-xs">
-                      <a
-                        href={prospect.website.startsWith("http") ? prospect.website : `https://${prospect.website}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-primary hover:underline"
-                      >
-                        {prospect.website}
-                      </a>
-                    </p>
-                  )}
-                  <div className="grid grid-cols-2 gap-x-2 text-xs">
-                    <span className="text-muted-foreground">Distance:</span>
-                    <span>{prospect.miles_from_home?.toFixed(1) ?? "—"} mi</span>
-                    <span className="text-muted-foreground">Drive:</span>
-                    <span>{prospect.drive_minutes?.toFixed(0) ?? "—"} min</span>
-                  </div>
-                  {prospect.primary_opportunity && (
-                    <p className="text-xs">
-                      <span className="text-muted-foreground">Opportunity: </span>
-                      {truncate(prospect.primary_opportunity, 80)}
-                    </p>
-                  )}
-                  {prospect.visit_opener && (
-                    <p className="text-xs">
-                      <span className="text-muted-foreground">Opener: </span>
-                      {truncate(prospect.visit_opener, 80)}
-                    </p>
-                  )}
-                </div>
+                <strong>Home Base</strong>
+                <br />
+                Groton, CT
               </Popup>
             </Marker>
-            );
-          })}
 
-          {routePolylines.map((route) => (
-            <Polyline key={route.id} positions={route.points} pathOptions={{ color: route.color, weight: 3, opacity: 0.7 }} />
-          ))}
-        </MapContainer>
+            {pinMode && pin ? (
+              <>
+                <Circle
+                  center={[pin.lat, pin.lng]}
+                  radius={pinRadiusMiles * MILE_TO_METERS}
+                  pathOptions={{
+                    color: "#0f766e",
+                    fillColor: "#0f766e",
+                    fillOpacity: 0.12,
+                    weight: 2,
+                  }}
+                />
+                <Marker
+                  position={[pin.lat, pin.lng]}
+                  icon={pinIcon}
+                  draggable
+                  eventHandlers={{
+                    dragend: (e) => {
+                      const marker = e.target as L.Marker;
+                      const { lat, lng } = marker.getLatLng();
+                      onPinChange({ lat, lng });
+                    },
+                  }}
+                >
+                  <Popup>
+                    <strong>Search pin</strong>
+                    <br />
+                    Drag to move · {pinRadiusMiles} mi radius
+                  </Popup>
+                </Marker>
+              </>
+            ) : null}
+
+            {previewBusinesses.map((biz) => (
+              <Marker key={biz.osmKey} position={[biz.lat, biz.lng]} icon={previewIcon}>
+                <Popup>
+                  <div className="min-w-[160px] space-y-1">
+                    <p className="font-semibold">{biz.company}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {[biz.city, biz.industry, biz.sizeBucket].filter(Boolean).join(" · ")}
+                    </p>
+                  </div>
+                </Popup>
+              </Marker>
+            ))}
+
+            {plannedRoutePolyline.length > 0 && (
+              <Polyline
+                positions={plannedRoutePolyline}
+                pathOptions={{ color: "#10b981", weight: 4, opacity: 0.8, dashArray: "10 5" }}
+              />
+            )}
+
+            {filteredProspects.map((prospect) => {
+              const isSelected = selectedIds.has(prospect.id);
+              return (
+                <Marker
+                  key={prospect.id}
+                  position={[prospect.lat, prospect.lng]}
+                  icon={createColoredIcon(isSelected ? "#10b981" : getStageColor(prospect.stage))}
+                  eventHandlers={{
+                    click: () => {
+                      if (pinMode) return;
+                      onToggleSelect(prospect.id);
+                    },
+                  }}
+                >
+                  <Popup>
+                    <div className="min-w-[200px] space-y-1">
+                      <Link
+                        href={`/companies/${prospect.id}`}
+                        className="font-semibold text-primary hover:underline"
+                      >
+                        {prospect.company}
+                      </Link>
+                      <div className="flex flex-wrap gap-1">
+                        <Badge variant="outline" className="text-xs">
+                          {labelize(prospect.stage)}
+                        </Badge>
+                        {prospect.industry && (
+                          <Badge variant="secondary" className="text-xs">
+                            {prospect.industry}
+                          </Badge>
+                        )}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {[prospect.city, prospect.region].filter(Boolean).join(", ")}
+                      </p>
+                      {prospect.website && (
+                        <p className="text-xs">
+                          <a
+                            href={
+                              prospect.website.startsWith("http")
+                                ? prospect.website
+                                : `https://${prospect.website}`
+                            }
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary hover:underline"
+                          >
+                            {prospect.website}
+                          </a>
+                        </p>
+                      )}
+                      <div className="grid grid-cols-2 gap-x-2 text-xs">
+                        <span className="text-muted-foreground">Distance:</span>
+                        <span>{prospect.miles_from_home?.toFixed(1) ?? "—"} mi</span>
+                        <span className="text-muted-foreground">Drive:</span>
+                        <span>{prospect.drive_minutes?.toFixed(0) ?? "—"} min</span>
+                      </div>
+                      {prospect.primary_opportunity && (
+                        <p className="text-xs">
+                          <span className="text-muted-foreground">Opportunity: </span>
+                          {truncate(prospect.primary_opportunity, 80)}
+                        </p>
+                      )}
+                      {prospect.visit_opener && (
+                        <p className="text-xs">
+                          <span className="text-muted-foreground">Opener: </span>
+                          {truncate(prospect.visit_opener, 80)}
+                        </p>
+                      )}
+                    </div>
+                  </Popup>
+                </Marker>
+              );
+            })}
+
+            {routePolylines.map((route) => (
+              <Polyline
+                key={route.id}
+                positions={route.points}
+                pathOptions={{ color: route.color, weight: 3, opacity: 0.7 }}
+              />
+            ))}
+          </MapContainer>
+
+          <div className="pointer-events-none absolute inset-x-3 top-3 z-[1000] flex flex-col gap-2 sm:inset-x-auto sm:left-3 sm:right-auto sm:w-[280px]">
+            <div className="pointer-events-auto rounded-2xl bg-paper/95 p-3 shadow-lg ring-1 ring-ink/10 backdrop-blur">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold">Pin search</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    {pinMode ? "Tap map or drag pin · Uber-style area scrape" : "Drop a pin to scrape nearby businesses"}
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant={pinMode ? "default" : "outline"}
+                  onClick={() => {
+                    const next = !pinMode;
+                    onPinModeChange(next);
+                    if (next && !pin) {
+                      onPinChange({ lat: HOME_POSITION[0], lng: HOME_POSITION[1] });
+                    }
+                  }}
+                >
+                  {pinMode ? "On" : "Off"}
+                </Button>
+              </div>
+
+              {pinMode ? (
+                <div className="mt-3 space-y-3">
+                  <Slider
+                    label="Radius"
+                    unit=" mi"
+                    min={1}
+                    max={25}
+                    step={1}
+                    value={pinRadiusMiles}
+                    onChange={(e) => onPinRadiusChange(Number(e.target.value))}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    {pin
+                      ? `${pin.lat.toFixed(4)}, ${pin.lng.toFixed(4)}`
+                      : "Tap the map to place your pin"}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      size="sm"
+                      className="flex-1"
+                      onClick={onSearchPinArea}
+                      disabled={!pin || pinSearching}
+                    >
+                      {pinSearching ? "Searching…" : "Search this area"}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => {
+                        onPinChange(null);
+                        onPinModeChange(false);
+                      }}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
 
         <div className="text-sm text-muted-foreground">
           {filteredProspects.length} mapped prospect{filteredProspects.length !== 1 ? "s" : ""} shown.{" "}
+          {previewBusinesses.length > 0
+            ? `${previewBusinesses.length} discovery preview pin${previewBusinesses.length !== 1 ? "s" : ""}. `
+            : null}
           {unmapped.length > 0 && `${unmapped.length} not yet mapped.`}
         </div>
       </div>
@@ -316,12 +557,16 @@ export function ProspectMapClient({
                 </div>
               ))}
           </div>
-          <div className="mt-2 border-t border-border pt-2">
+          <div className="mt-2 border-t border-border pt-2 space-y-1">
             <div className="flex items-center gap-2 text-xs">
               <div className="h-3 w-3 rounded-full bg-amber-400" />
               <span>Home (Groton, CT)</span>
             </div>
-            <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+            <div className="flex items-center gap-2 text-xs">
+              <div className="h-3 w-3 rounded-full bg-teal-700" />
+              <span>Pin search / discovery preview</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="inline-block h-0.5 w-4 border-t border-dashed border-amber-400" />
               <span>10 / 20 / 30 mile rings</span>
             </div>

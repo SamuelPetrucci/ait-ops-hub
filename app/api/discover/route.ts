@@ -18,6 +18,8 @@ type DiscoverBody = {
   categoryIds?: string[];
   sizeBuckets?: CompanySizeBucket[];
   enrichWebsites?: boolean;
+  lat?: number;
+  lng?: number;
 };
 
 function encodeEvent(payload: Record<string, unknown>): Uint8Array {
@@ -50,15 +52,23 @@ export async function POST(request: NextRequest) {
       };
 
       try {
+        const hasPin =
+          typeof body.lat === "number" &&
+          typeof body.lng === "number" &&
+          Number.isFinite(body.lat) &&
+          Number.isFinite(body.lng);
+
         const result: DiscoverAreaResult = await discoverAreaBusinesses(
           {
-            locationQuery: body.locationQuery || "Groton, CT",
+            locationQuery: body.locationQuery || (hasPin ? "Pinned map area" : "Groton, CT"),
             radiusMiles: body.radiusMiles || 10,
             categoryIds: body.categoryIds?.length
               ? body.categoryIds
               : DISCOVERY_CATEGORIES.map((c) => c.id),
             sizeBuckets: body.sizeBuckets?.length ? body.sizeBuckets : undefined,
             enrichWebsites: Boolean(body.enrichWebsites),
+            lat: hasPin ? body.lat : undefined,
+            lng: hasPin ? body.lng : undefined,
           },
           async (progress: DiscoverProgress) => {
             send({ type: "progress", ...progress });
