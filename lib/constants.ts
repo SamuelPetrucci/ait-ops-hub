@@ -80,6 +80,8 @@ export const INDUSTRIES = [
   "Healthcare Admin",
   "Real Estate/Property Mgmt",
   "B2B Services",
+  "Restaurant",
+  "Contractor",
   "Other",
 ];
 

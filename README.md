@@ -51,6 +51,12 @@ The Content desk pulls views, reactions, comments, and engagement from Buffer. C
 
 Open **Profile** or **Integrations** from the account menu. The hub pings Supabase, Buffer, video storage, and the ops password gate, then stores a health snapshot (preferred table `hub_integration_checks`, otherwise `daily_metrics` with `entry_type = integration_check`). Apply `supabase/migrations/20261114220000_hub_integrations_audit.sql` in the Supabase SQL editor to enable the dedicated audit table.
 
+## Area discovery (free)
+
+Sales Map → **Discover area** pulls local businesses from OpenStreetMap via Overpass (no Apify / Google Places). Filter by industry/service niche and estimated company size (Wikidata headcount when tagged, otherwise OSM heuristics; optional free website sniff). Import selected rows into `prospects`.
+
+Apply `supabase/migrations/20261115090000_prospect_discovery.sql` in the Supabase SQL editor so `osm_id`, `company_size_bucket`, and `discovery_source` exist. Import still works without it, but dedupe by OSM id is weaker until the migration is applied.
+
 ## How agents read directives and write activities
 
 Agents and n8n use the service role on the server. That role bypasses RLS. Never put it in a browser, a `NEXT_PUBLIC_` variable, or a client bundle.
