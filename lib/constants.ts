@@ -82,16 +82,10 @@ export const INDUSTRIES = [
   "Other",
 ];
 
+/** Only surfaces that are first-class and functional in the hub. */
 export const NAV = [
   { href: "/", label: "Overview" },
-  { href: "/companies", label: "Companies", group: "Business" },
-  { href: "/pipeline", label: "Pipeline", group: "Business" },
-  { href: "/follow-ups", label: "Follow-ups", group: "Business" },
-  { href: "/revenue", label: "Revenue", group: "Business" },
-  { href: "/content", label: "Queue", group: "Content" },
-  { href: "/approvals", label: "Approvals", group: "Operations" },
-  { href: "/agents", label: "Agents", group: "Operations" },
-  { href: "/tasks", label: "Tasks", group: "Operations" },
-  { href: "/activity", label: "Activity", group: "Operations" },
-  { href: "/reports", label: "Reports", group: "Operations" },
-];
+  { href: "/leads", label: "Leads" },
+  { href: "/clients", label: "Clients" },
+  { href: "/content", label: "Content" },
+] as const;

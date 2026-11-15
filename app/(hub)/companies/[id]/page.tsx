@@ -18,6 +18,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { requireOwner } from "@/lib/auth";
 import { DEAL_COLUMNS } from "@/lib/constants";
 import { formatWhen, labelize, money, siteUrl } from "@/lib/format";
+import { backPathForStage } from "@/lib/prospects";
 
 export const metadata = { title: "Company" };
 
@@ -117,8 +118,8 @@ export default async function CompanyPage({
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs text-muted-foreground">
-            <Link href="/companies" className="hover:underline">
-              Companies
+            <Link href={backPathForStage(company.stage)} className="hover:underline">
+              {backPathForStage(company.stage) === "/clients" ? "Clients" : "Leads"}
             </Link>
           </p>
           <h1 className="text-2xl font-medium">{company.company}</h1>
@@ -206,7 +207,7 @@ export default async function CompanyPage({
                     </p>
                   </div>
                   <Button variant="outline" size="sm" asChild>
-                    <Link href="/pipeline">Pipeline</Link>
+                    <Link href={backPathForStage(company.stage)}>Back to list</Link>
                   </Button>
                 </div>
               ))}

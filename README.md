@@ -30,7 +30,7 @@ These are the Vercel Supabase integration names. Do not prefix the service keys 
 
 ## What the hub does
 
-- Companies and contacts, saved filter views, and a deal pipeline with value and weighted forecast.
+- Leads and clients with working filters, company detail (contacts/deals/notes), content scripts, and Buffer stats.
 - Company pages with a timeline, follow-ups, tasks, and outreach drafts.
 - Revenue against the $5,000 goal by 24 Nov 2026 (stretch $10,000), plus the service catalog.
 - Agent roster, startup directives, a single approvals inbox, task and content boards, and daily reports.
@@ -43,6 +43,10 @@ Dragging a content card to Posted only changes status. It does not call a social
 ## Buffer analytics
 
 The Content desk pulls views, reactions, comments, and engagement from Buffer. Create a personal API key in Buffer → Settings → API, set `BUFFER_API_KEY` in `.env` / Vercel, then click **Refresh Buffer** on Overview or Content. Metrics refresh about once a day on Buffer’s side. The hub matches posts to `content_queue` by the `VD-…` / `SC-…` code in the video URL.
+
+## Profile and integrations
+
+Open **Profile** or **Integrations** from the account menu. The hub pings Supabase, Buffer, video storage, and the ops password gate, then stores a health snapshot (preferred table `hub_integration_checks`, otherwise `daily_metrics` with `entry_type = integration_check`). Apply `supabase/migrations/20261114220000_hub_integrations_audit.sql` in the Supabase SQL editor to enable the dedicated audit table.
 
 ## How agents read directives and write activities
 

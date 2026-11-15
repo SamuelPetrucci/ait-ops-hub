@@ -34,24 +34,26 @@ export async function saveView(formData: FormData) {
   const { supabase } = await requireOwner();
   const name = text(formData, "name");
   const resource = text(formData, "resource") || "prospects";
+  const returnTo = text(formData, "return_to") || "/leads";
   const filters = JSON.parse(text(formData, "filters") || "{}") as Record<string, string>;
-  if (!name) redirect("/companies?error=Name%20the%20view%20first");
+  if (!name) redirect(`${returnTo}?error=Name%20the%20view%20first`);
   const { error } = await supabase.from("saved_views").insert({
     name,
     resource,
     filters,
     created_by: "Samuel",
   });
-  if (error) redirect(`/companies?error=${encodeURIComponent(error.message)}`);
-  refresh(["/companies"]);
+  if (error) redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
+  refresh(["/leads", "/clients", "/companies"]);
 }
 
 export async function deleteView(formData: FormData) {
   const { supabase } = await requireOwner();
   const id = text(formData, "id");
+  const returnTo = text(formData, "return_to") || "/leads";
   const { error } = await supabase.from("saved_views").delete().eq("id", id);
-  if (error) redirect(`/companies?error=${encodeURIComponent(error.message)}`);
-  refresh(["/companies"]);
+  if (error) redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
+  refresh(["/leads", "/clients", "/companies"]);
 }
 
 export async function logTouch(formData: FormData) {
