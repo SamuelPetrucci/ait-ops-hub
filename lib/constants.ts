@@ -85,13 +85,23 @@ export const INDUSTRIES = [
   "Other",
 ];
 
+export type NavLink = {
+  href: string;
+  label: string;
+  children?: readonly { href: string; label: string }[];
+};
+
 /** Only surfaces that are first-class and functional in the hub. */
-export const NAV = [
+export const NAV: readonly NavLink[] = [
   { href: "/", label: "Overview" },
   { href: "/leads", label: "Leads" },
   { href: "/clients", label: "Clients" },
   { href: "/prospect-map", label: "Sales Map" },
-  { href: "/content", label: "Content" },
+  {
+    href: "/content",
+    label: "Content",
+    children: [{ href: "/content/trends", label: "Trends" }],
+  },
   { href: "/approvals", label: "Approvals" },
   { href: "/sms", label: "SMS Inbox" },
-] as const;
+];
