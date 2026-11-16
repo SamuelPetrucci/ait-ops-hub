@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { Fragment, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
 import { searchHub } from "@/app/actions/mutations";
@@ -116,9 +116,20 @@ export function CommandPalette({ variant = "button" }: { variant?: "button" | "b
             <CommandEmpty>No matches.</CommandEmpty>
             <CommandGroup heading="Go to">
               {NAV.map((item) => (
-                <CommandItem key={item.href} value={`go ${item.label}`} onSelect={() => go(item.href)}>
-                  {item.label}
-                </CommandItem>
+                <Fragment key={item.href}>
+                  <CommandItem value={`go ${item.label}`} onSelect={() => go(item.href)}>
+                    {item.label}
+                  </CommandItem>
+                  {item.children?.map((child) => (
+                    <CommandItem
+                      key={child.href}
+                      value={`go ${item.label} ${child.label}`}
+                      onSelect={() => go(child.href)}
+                    >
+                      {item.label} · {child.label}
+                    </CommandItem>
+                  ))}
+                </Fragment>
               ))}
               <CommandItem value="go Profile" onSelect={() => go("/profile")}>
                 Profile

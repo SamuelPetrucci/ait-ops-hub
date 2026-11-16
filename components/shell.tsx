@@ -59,29 +59,12 @@ export function Shell({
                 </SheetTitle>
               </SheetHeader>
               <nav className="flex flex-col gap-1 p-3">
-                {NAV.map((item) => {
-                  const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-                  const count = badgeFor(item.href, badges);
-                  return (
-                    <Link
-                      key={item.href}
-                      href={item.href}
-                      onClick={() => setMobileMenuOpen(false)}
-                      className={`flex items-center justify-between rounded-lg px-3 py-2.5 text-sm transition ${
-                        active
-                          ? "bg-ink text-paper"
-                          : "text-ink-soft hover:bg-ink/5 hover:text-ink"
-                      }`}
-                    >
-                      <span>{item.label}</span>
-                      {count > 0 ? (
-                        <span className={`rounded-full px-2 py-0.5 text-xs tabular-nums ${active ? "bg-paper/20 text-paper" : "bg-signal/15 text-signal"}`}>
-                          {count}
-                        </span>
-                      ) : null}
-                    </Link>
-                  );
-                })}
+                <NavLinks
+                  pathname={pathname}
+                  badges={badges}
+                  variant="sheet"
+                  onNavigate={() => setMobileMenuOpen(false)}
+                />
               </nav>
               <div className="mt-auto border-t border-ink/10 p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
                 <Link
@@ -127,28 +110,7 @@ export function Shell({
           </div>
         </div>
         <nav className="relative mx-auto hidden w-full max-w-7xl gap-1 overflow-x-auto px-3 pb-3 md:flex md:px-5">
-          {NAV.map((item) => {
-            const active = item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
-            const count = badgeFor(item.href, badges);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm transition ${
-                  active
-                    ? "bg-ink text-paper shadow-sm"
-                    : "text-ink-soft hover:bg-ink/5 hover:text-ink"
-                }`}
-              >
-                {item.label}
-                {count > 0 ? (
-                  <span className="rounded-full bg-signal/15 px-1.5 text-[11px] tabular-nums text-signal">
-                    {count}
-                  </span>
-                ) : null}
-              </Link>
-            );
-          })}
+          <NavLinks pathname={pathname} badges={badges} variant="bar" />
         </nav>
       </header>
       <main className="relative flex w-full flex-col gap-4 px-3 py-4 pb-[calc(1rem+env(safe-area-inset-bottom))] sm:gap-5 sm:py-5 sm:pb-[calc(1.25rem+env(safe-area-inset-bottom))] md:gap-6 md:px-5 md:py-7 md:pb-[calc(1.75rem+env(safe-area-inset-bottom))]">
@@ -182,6 +144,88 @@ function Account({ email }: { email: string }) {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function NavLinks({
+  pathname,
+  badges,
+  variant,
+  onNavigate,
+}: {
+  pathname: string;
+  badges: { leads: number; content: number; approvals: number; sms: number };
+  variant: "bar" | "sheet";
+  onNavigate?: () => void;
+}) {
+  return NAV.map((item) => {
+    const children = item.children ?? [];
+    const childActive = children.some((child) => isActive(pathname, child.href));
+    const active = isActive(pathname, item.href);
+    const count = badgeFor(item.href, badges);
+    const parentSelected = active && !childActive;
+    return (
+      <div key={item.href} className={variant === "sheet" ? "flex flex-col gap-1" : "contents"}>
+        <Link
+          href={item.href}
+          onClick={onNavigate}
+          aria-current={parentSelected ? "page" : undefined}
+          className={variant === "sheet" ? sheetLink(parentSelected, childActive) : barLink(parentSelected, childActive)}
+        >
+          <span>{item.label}</span>
+          {count > 0 ? (
+            <span
+              className={
+                variant === "sheet"
+                  ? `rounded-full px-2 py-0.5 text-xs tabular-nums ${parentSelected ? "bg-paper/20 text-paper" : "bg-signal/15 text-signal"}`
+                  : "rounded-full bg-signal/15 px-1.5 text-[11px] tabular-nums text-signal"
+              }
+            >
+              {count}
+            </span>
+          ) : null}
+        </Link>
+        {children.map((child) => {
+          const selected = isActive(pathname, child.href);
+          return (
+            <Link
+              key={child.href}
+              href={child.href}
+              onClick={onNavigate}
+              aria-current={selected ? "page" : undefined}
+              className={
+                variant === "sheet"
+                  ? `ml-3 rounded-lg px-3 py-2 text-sm transition ${
+                      selected ? "bg-ink text-paper" : "text-ink-soft hover:bg-ink/5 hover:text-ink"
+                    }`
+                  : `inline-flex shrink-0 items-center rounded-full px-3 py-1.5 text-sm transition ${
+                      selected ? "bg-ink text-paper shadow-sm" : "text-ink-soft hover:bg-ink/5 hover:text-ink"
+                    }`
+              }
+            >
+              {child.label}
+            </Link>
+          );
+        })}
+      </div>
+    );
+  });
+}
+
+function isActive(pathname: string, href: string) {
+  if (href === "/") return pathname === "/";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+function barLink(selected: boolean, section: boolean) {
+  if (selected) return "inline-flex shrink-0 items-center gap-1.5 rounded-full bg-ink px-3.5 py-1.5 text-sm text-paper shadow-sm transition";
+  if (section) return "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm font-medium text-ink transition hover:bg-ink/5";
+  return "inline-flex shrink-0 items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sm text-ink-soft transition hover:bg-ink/5 hover:text-ink";
+}
+
+function sheetLink(selected: boolean, section: boolean) {
+  if (selected) return "flex items-center justify-between rounded-lg bg-ink px-3 py-2.5 text-sm text-paper transition";
+  if (section) return "flex items-center justify-between rounded-lg px-3 py-2.5 text-sm font-medium text-ink transition hover:bg-ink/5";
+  return "flex items-center justify-between rounded-lg px-3 py-2.5 text-sm text-ink-soft transition hover:bg-ink/5 hover:text-ink";
 }
 
 function badgeFor(

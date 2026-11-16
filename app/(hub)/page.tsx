@@ -4,11 +4,13 @@ import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { ContentPiece } from "@/components/content-piece";
 import { SiteLink } from "@/components/site-link";
+import { TopTrends } from "@/components/top-trends";
 import { requireOwner } from "@/lib/auth";
 import { readBufferTotals } from "@/lib/buffer";
 import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
 import { addDays, formatWhen, nyToday } from "@/lib/format";
 import { LEAD_STAGES } from "@/lib/prospects";
+import { orderTopTrends } from "@/lib/trends";
 
 export const metadata = { title: "Overview" };
 
@@ -20,7 +22,7 @@ export default async function OverviewPage() {
 
   const upcomingUntil = `${addDays(today, 14)}T23:59:59Z`;
 
-  const [followUps, leadCount, clientCount, moving, posted, upcoming, inReview, buffer] = await Promise.all([
+  const [followUps, leadCount, clientCount, moving, posted, upcoming, inReview, buffer, liveTrends] = await Promise.all([
     supabase
       .from("prospects")
       .select("id, company, website, next_follow_up_due, stage, industry")
@@ -59,9 +61,15 @@ export default async function OverviewPage() {
       .limit(8),
     supabase.from("content_queue").select("id", { count: "exact", head: true }).eq("status", "in_review"),
     readBufferTotals(),
+    supabase
+      .from("trends")
+      .select("id, detected_at, topic, niche, status, heat_score")
+      .neq("status", "expired")
+      .order("detected_at", { ascending: false })
+      .limit(5),
   ]);
 
-  for (const result of [followUps, moving, posted, upcoming]) {
+  for (const result of [followUps, moving, posted, upcoming, liveTrends]) {
     if (result.error) throw new Error(result.error.message);
   }
 
@@ -128,6 +136,8 @@ export default async function OverviewPage() {
           hintLink={inReview.count ? { href: "/approvals", text: `${inReview.count} in review` } : undefined}
         />
       </section>
+
+      <TopTrends trends={orderTopTrends(liveTrends.data ?? [])} />
 
       <div className="grid items-start gap-6 xl:grid-cols-[0.9fr_1.1fr]">
         <section className="rounded-3xl bg-card/50 p-5 ring-1 ring-foreground/10">

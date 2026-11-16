@@ -133,7 +133,12 @@ export default async function ContentPage({
               {buffer.syncedAt ? ` · synced ${formatWhen(buffer.syncedAt)}` : ""}.
             </p>
           </div>
-          <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+          <div className="flex items-center gap-3">
+            <Link href="/content/trends" className="text-xs text-signal hover:underline">
+              Trends
+            </Link>
+            <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+          </div>
         </div>
       </div>
 
