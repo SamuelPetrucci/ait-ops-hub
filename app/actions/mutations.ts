@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { logActivity } from "@/lib/activity";
 import { requireOwner } from "@/lib/auth";
-import { DEAL_TO_PROSPECT } from "@/lib/constants";
+import { DEAL_TO_PROSPECT, PROSPECT_STAGES, PROSPECT_TO_DEAL } from "@/lib/constants";
 import { byContentRecency } from "@/lib/content";
 import { addDays, nyToday } from "@/lib/format";
 import { SESSION_COOKIE } from "@/lib/session";
@@ -157,6 +157,60 @@ export async function createContact(formData: FormData) {
     details: { contact_id: data.id, name },
   });
   refresh([`/companies/${prospectId}`]);
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Update CRM stage for any prospect (company/contact record) in the database. */
+export async function updateProspectStage(id: string, stage: string) {
+  if (!UUID.test(id) || !(PROSPECT_STAGES as readonly string[]).includes(stage)) {
+    return { ok: false as const, error: "That stage update is not valid." };
+  }
+
+  const { supabase } = await requireOwner();
+  const { data, error } = await supabase
+    .from("prospects")
+    .update({ stage })
+    .eq("id", id)
+    .select("id, company, stage")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false as const, error: error?.message || "Could not update that contact." };
+  }
+
+  const dealStatus = PROSPECT_TO_DEAL[stage];
+  if (dealStatus) {
+    const { data: deals } = await supabase
+      .from("deals")
+      .select("id")
+      .eq("prospect_id", id)
+      .order("updated_at", { ascending: false })
+      .limit(1);
+    const dealId = deals?.[0]?.id;
+    if (dealId) {
+      const probability =
+        dealStatus === "won" ? 100 : dealStatus === "lost" || dealStatus === "do_not_contact" ? 0 : undefined;
+      await supabase
+        .from("deals")
+        .update({ status: dealStatus, ...(probability == null ? {} : { probability }) })
+        .eq("id", dealId);
+    }
+  }
+
+  try {
+    await logActivity(supabase, {
+      entityType: "prospect",
+      entityId: id,
+      action: "status_change",
+      details: { stage, company: data.company },
+    });
+  } catch {
+    // Stage is already saved; a missing activity line should not undo the change.
+  }
+
+  refresh([`/companies/${id}`, "/leads", "/clients", "/prospect-map", "/"]);
+  return { ok: true as const };
 }
 
 export async function createDeal(formData: FormData) {

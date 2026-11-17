@@ -9,6 +9,7 @@ import {
   scheduleFollowUp,
 } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { ProspectStageSelect } from "@/components/prospect-stage-select";
 import { SiteLink } from "@/components/site-link";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -127,7 +128,7 @@ export default async function CompanyPage({
             {[company.industry, company.city, company.region].filter(Boolean).join(" · ") || "No location yet"}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {siteUrl(company.website) ? (
             <Button variant="outline" size="sm" asChild>
               <a href={siteUrl(company.website) || undefined} target="_blank" rel="noreferrer">
@@ -135,7 +136,7 @@ export default async function CompanyPage({
               </a>
             </Button>
           ) : null}
-          <Badge>{labelize(company.stage)}</Badge>
+          <ProspectStageSelect id={id} stage={company.stage} className="min-w-[12rem]" />
           <Badge variant="outline">Follow-up {formatWhen(company.next_follow_up_due)}</Badge>
         </div>
       </div>
