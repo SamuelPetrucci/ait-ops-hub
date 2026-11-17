@@ -45,6 +45,32 @@ export const DEAL_TO_PROSPECT: Record<string, string> = {
   do_not_contact: "do_not_contact",
 };
 
+/** Map prospect stage → deal status when a clear counterpart exists. */
+export const PROSPECT_TO_DEAL: Record<string, string> = {
+  researched: "researched",
+  qualified: "qualified",
+  draft: "draft",
+  approved: "draft",
+  sent: "sent",
+  replied: "replied",
+  meeting_booked: "meeting",
+  audit_proposed: "proposal",
+  audit_paid: "won",
+  implementation_proposed: "proposal",
+  won: "won",
+  delivered: "won",
+  lost: "lost",
+  do_not_contact: "do_not_contact",
+};
+
+export const PROSPECT_STAGE_OPTIONS = PROSPECT_STAGES.map((stage) => [
+  stage,
+  stage
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" "),
+] as const);
+
 export const TASK_COLUMNS = [
   ["not_started", "Not started"],
   ["in_progress", "In progress"],

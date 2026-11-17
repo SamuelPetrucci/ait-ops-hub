@@ -1,13 +1,13 @@
 import Link from "next/link";
 import { deleteView, saveView } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { ProspectStageSelect } from "@/components/prospect-stage-select";
 import { SiteLink } from "@/components/site-link";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireOwner } from "@/lib/auth";
-import { formatWhen, labelize, nyToday } from "@/lib/format";
+import { formatWhen, nyToday } from "@/lib/format";
 import {
   applyProspectFilters,
   filtersToSearchParams,
@@ -20,7 +20,6 @@ import {
   getProspectGroupFromStage,
   getProspectGroupLabel,
   PROSPECT_GROUP_ORDER,
-  PROSPECT_STAGE_GROUPS,
   type ProspectStageGroup,
 } from "@/lib/status-groups";
 
@@ -315,7 +314,7 @@ export async function ProspectDirectory({
                 </TableCell>
                 <TableCell>{row.industry || "—"}</TableCell>
                 <TableCell>
-                  <Badge variant="outline">{labelize(row.stage)}</Badge>
+                  <ProspectStageSelect id={row.id} stage={row.stage} compact />
                 </TableCell>
                 <TableCell className="tabular-nums">{row.lead_score ?? "—"}</TableCell>
                 <TableCell>
