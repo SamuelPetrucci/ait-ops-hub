@@ -164,6 +164,7 @@ export async function geocodeMissingProspects(): Promise<GeocodeBatchResult> {
     await sleep(RATE_LIMIT_MS);
   }
 
+  revalidatePath("/crm");
   revalidatePath("/prospect-map");
   return result;
 }
@@ -210,6 +211,7 @@ export async function geocodeSingleProspect(prospectId: string): Promise<Geocode
     return { success: false, error: updateError.message, company: row.company };
   }
 
+  revalidatePath("/crm");
   revalidatePath("/prospect-map");
   revalidatePath(`/companies/${prospectId}`);
   return { success: true, lat: geo.lat, lng: geo.lng, company: row.company };

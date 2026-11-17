@@ -213,7 +213,9 @@ function NavLinks({
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
-  return pathname === href || pathname.startsWith(`${href}/`);
+  const pathOnly = href.split("?")[0] || href;
+  if (pathOnly === "/crm") return pathname === "/crm" || pathname.startsWith("/crm/");
+  return pathname === pathOnly || pathname.startsWith(`${pathOnly}/`);
 }
 
 function barLink(selected: boolean, section: boolean) {
@@ -232,7 +234,7 @@ function badgeFor(
   href: string,
   badges: { leads: number; content: number; approvals: number; sms: number },
 ) {
-  if (href === "/leads") return badges.leads;
+  if (href === "/crm" || href === "/leads") return badges.leads;
   if (href === "/content") return badges.content;
   if (href === "/approvals") return badges.approvals;
   if (href === "/sms") return badges.sms;

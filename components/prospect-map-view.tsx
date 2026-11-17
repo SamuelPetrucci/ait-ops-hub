@@ -3,7 +3,7 @@
 import { useState, useMemo, useTransition } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -23,7 +23,21 @@ import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
 import { AreaDiscovery, type DiscoveryPin } from "@/components/area-discovery";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
-import type { MappedProspect, ProspectMapFilters, RouteInfo, UnmappedProspect } from "@/lib/prospect-map";
+import {
+  crmSearchParams,
+  groupOptionsForStages,
+  stageAllowed,
+  type CrmFilters,
+  type ProspectScope,
+} from "@/lib/crm";
+import {
+  matchesMapFilters,
+  type MappedProspect,
+  type ProspectMapFilters,
+  type RouteInfo,
+  type UnmappedProspect,
+} from "@/lib/prospect-map";
+import { getProspectGroupLabel } from "@/lib/status-groups";
 
 const ProspectMapClient = dynamic(() => import("./prospect-map-client").then((m) => m.ProspectMapClient), {
   ssr: false,
@@ -44,36 +58,72 @@ type ProspectMapViewProps = {
   mapped: MappedProspect[];
   unmapped: UnmappedProspect[];
   routes: RouteInfo[];
-  stages: string[];
   categories: string[];
   routeIds: string[];
   towns: string[];
   savedRoutes: SavedRoute[];
+  scope?: ProspectScope;
+  initialFilters?: CrmFilters;
 };
+
+function mapFiltersFromCrm(initial?: CrmFilters): ProspectMapFilters {
+  const minScore = Number(initial?.score || 0);
+  const maxDistance = Number(initial?.maxDistance || 50);
+  return {
+    stage: initial?.stage || "",
+    stageGroup: initial?.stageGroup || "",
+    routeId: initial?.routeId || "",
+    category: initial?.industry || "",
+    maxDistance: Number.isFinite(maxDistance) && maxDistance > 0 ? maxDistance : 50,
+    town: initial?.town || "",
+    minScore: Number.isFinite(minScore) ? minScore : 0,
+  };
+}
 
 export function ProspectMapView({
   mapped,
   unmapped,
   routes,
-  stages,
   categories,
   routeIds,
   towns,
   savedRoutes,
+  scope = "leads",
+  initialFilters,
 }: ProspectMapViewProps) {
   const router = useRouter();
+  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
 
-  const [filters, setFilters] = useState<ProspectMapFilters>({
-    stage: "",
-    routeId: "",
-    category: "",
-    maxDistance: 50,
-    town: "",
-    minScore: 0,
-  });
+  const [filters, setFilters] = useState<ProspectMapFilters>(() => mapFiltersFromCrm(initialFilters));
   const [showRoutes, setShowRoutes] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  const stageGroups = useMemo(
+    () => groupOptionsForStages(mapped.map((p) => p.stage), filters.stageGroup),
+    [mapped, filters.stageGroup],
+  );
+
+  const syncFiltersToUrl = (next: ProspectMapFilters) => {
+    if (!pathname.startsWith("/crm")) return;
+    const qs = crmSearchParams({
+      scope,
+      view: "map",
+      filters: {
+        q: initialFilters?.q || "",
+        stage: next.stage,
+        stageGroup: next.stageGroup,
+        industry: next.category,
+        score: next.minScore > 0 ? String(next.minScore) : "",
+        followUp: initialFilters?.followUp || "",
+        owner: initialFilters?.owner || "",
+        includeDnc: initialFilters?.includeDnc || "",
+        town: next.town,
+        routeId: next.routeId,
+        maxDistance: next.maxDistance !== 50 ? String(next.maxDistance) : "",
+      },
+    });
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+  };
   const [sortKey, setSortKey] = useState<SortKey>("miles_from_home");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
 
@@ -90,20 +140,24 @@ export function ProspectMapView({
   const [discoveredBusinesses, setDiscoveredBusinesses] = useState<DiscoveredBusiness[]>([]);
 
   const handleFilterChange = (partial: Partial<ProspectMapFilters>) => {
-    setFilters((prev) => ({ ...prev, ...partial }));
+    setFilters((prev) => {
+      const next = { ...prev, ...partial };
+      syncFiltersToUrl(next);
+      return next;
+    });
   };
 
   const filteredProspects = useMemo(() => {
-    return mapped.filter((p) => {
-      if (filters.stage && p.stage !== filters.stage) return false;
-      if (filters.routeId && p.route_id !== filters.routeId) return false;
-      if (filters.category && p.industry !== filters.category) return false;
-      if (filters.town && p.city !== filters.town) return false;
-      if (filters.maxDistance && p.miles_from_home && p.miles_from_home > filters.maxDistance) return false;
-      if (filters.minScore && (p.lead_score ?? 0) < filters.minScore) return false;
-      return true;
-    });
-  }, [mapped, filters]);
+    return mapped.filter((p) =>
+      matchesMapFilters(p, filters, (stage) =>
+        stageAllowed(stage, scope, {
+          stage: filters.stage,
+          stageGroup: filters.stageGroup,
+          includeDnc: initialFilters?.includeDnc || "",
+        }),
+      ),
+    );
+  }, [mapped, filters, scope, initialFilters?.includeDnc]);
 
   const sortedProspects = useMemo(() => {
     const sorted = [...filteredProspects].sort((a, b) => {
@@ -307,7 +361,14 @@ export function ProspectMapView({
     });
   };
 
-  const hasActiveFilters = filters.stage || filters.routeId || filters.category || filters.town || filters.maxDistance !== 50 || filters.minScore !== 0;
+  const hasActiveFilters =
+    filters.stage ||
+    filters.stageGroup ||
+    filters.routeId ||
+    filters.category ||
+    filters.town ||
+    filters.maxDistance !== 50 ||
+    filters.minScore !== 0;
 
   return (
     <div className="flex flex-col gap-4 sm:gap-6">
@@ -322,36 +383,53 @@ export function ProspectMapView({
         onResultsChange={setDiscoveredBusinesses}
       />
 
-      <div className="flex items-center justify-between sm:hidden">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setShowFilters(!showFilters)}
-          className="gap-2"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
-          </svg>
-          Filters
-          {hasActiveFilters && <span className="size-2 rounded-full bg-signal" />}
-        </Button>
-        <span className="text-xs text-muted-foreground">
-          {filteredProspects.length} shown
-        </span>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFilters(!showFilters)}
+            className="gap-2 sm:hidden"
+          >
+            Filters
+            {hasActiveFilters ? <span className="size-2 rounded-full bg-signal" /> : null}
+          </Button>
+          {hasActiveFilters ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() =>
+                handleFilterChange({
+                  stage: "",
+                  stageGroup: "",
+                  routeId: "",
+                  category: "",
+                  town: "",
+                  maxDistance: 50,
+                  minScore: 0,
+                })
+              }
+            >
+              Clear filters
+            </Button>
+          ) : null}
+        </div>
+        <span className="text-xs text-muted-foreground">{filteredProspects.length} shown</span>
       </div>
 
       <div className={`grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 ${showFilters ? "" : "hidden sm:grid"}`}>
         <div>
           <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Stage</label>
           <select
-            value={filters.stage}
-            onChange={(e) => handleFilterChange({ stage: e.target.value })}
+            value={filters.stageGroup}
+            onChange={(e) => handleFilterChange({ stageGroup: e.target.value, stage: "" })}
             className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
+            aria-label="Stage group"
           >
             <option value="">All stages</option>
-            {stages.map((s) => (
-              <option key={s} value={s}>
-                {labelize(s)}
+            {stageGroups.map((group) => (
+              <option key={group} value={group}>
+                {getProspectGroupLabel(group)}
               </option>
             ))}
           </select>

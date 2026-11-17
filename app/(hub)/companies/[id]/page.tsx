@@ -19,7 +19,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { requireOwner } from "@/lib/auth";
 import { DEAL_COLUMNS } from "@/lib/constants";
 import { formatWhen, labelize, money, siteUrl } from "@/lib/format";
-import { backPathForStage } from "@/lib/prospects";
+import { backPathForStage, CLIENT_STAGES } from "@/lib/prospects";
 
 export const metadata = { title: "Company" };
 
@@ -120,7 +120,7 @@ export default async function CompanyPage({
         <div>
           <p className="text-xs text-muted-foreground">
             <Link href={backPathForStage(company.stage)} className="hover:underline">
-              {backPathForStage(company.stage) === "/clients" ? "Clients" : "Leads"}
+              {CLIENT_STAGES.includes(company.stage) ? "Clients" : "Leads"}
             </Link>
           </p>
           <h1 className="text-2xl font-medium">{company.company}</h1>

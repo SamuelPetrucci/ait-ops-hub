@@ -28,7 +28,9 @@ export type UnmappedProspect = {
 };
 
 export type ProspectMapFilters = {
+  /** Exact stage — optional; prefer stageGroup for CRM consistency. */
   stage: string;
+  stageGroup: string;
   routeId: string;
   category: string;
   maxDistance: number;
@@ -68,6 +70,20 @@ export function computeRoutes(prospects: MappedProspect[]): RouteInfo[] {
 
 export function getUniqueStages(prospects: MappedProspect[]): string[] {
   return [...new Set(prospects.map((p) => p.stage))].sort();
+}
+
+export function matchesMapFilters(
+  p: Pick<MappedProspect, "stage" | "route_id" | "industry" | "city" | "miles_from_home" | "lead_score">,
+  filters: ProspectMapFilters,
+  stageAllowed: (stage: string) => boolean,
+) {
+  if (!stageAllowed(p.stage)) return false;
+  if (filters.routeId && p.route_id !== filters.routeId) return false;
+  if (filters.category && p.industry !== filters.category) return false;
+  if (filters.town && p.city !== filters.town) return false;
+  if (filters.maxDistance && p.miles_from_home && p.miles_from_home > filters.maxDistance) return false;
+  if (filters.minScore && (p.lead_score ?? 0) < filters.minScore) return false;
+  return true;
 }
 
 export function getUniqueCategories(prospects: MappedProspect[]): string[] {
