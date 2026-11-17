@@ -231,6 +231,7 @@ export async function importDiscoveredBusinesses(
     }
   }
 
+  revalidatePath("/crm");
   revalidatePath("/prospect-map");
   revalidatePath("/leads");
   revalidatePath("/", "layout");

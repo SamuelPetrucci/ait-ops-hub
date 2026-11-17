@@ -34,26 +34,26 @@ export async function saveView(formData: FormData) {
   const { supabase } = await requireOwner();
   const name = text(formData, "name");
   const resource = text(formData, "resource") || "prospects";
-  const returnTo = text(formData, "return_to") || "/leads";
+  const returnTo = text(formData, "return_to") || "/crm";
   const filters = JSON.parse(text(formData, "filters") || "{}") as Record<string, string>;
-  if (!name) redirect(`${returnTo}?error=Name%20the%20view%20first`);
+  if (!name) redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=Name%20the%20view%20first`);
   const { error } = await supabase.from("saved_views").insert({
     name,
     resource,
     filters,
     created_by: "Samuel",
   });
-  if (error) redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
-  refresh(["/leads", "/clients", "/companies"]);
+  if (error) redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(error.message)}`);
+  refresh(["/crm", "/leads", "/clients", "/companies"]);
 }
 
 export async function deleteView(formData: FormData) {
   const { supabase } = await requireOwner();
   const id = text(formData, "id");
-  const returnTo = text(formData, "return_to") || "/leads";
+  const returnTo = text(formData, "return_to") || "/crm";
   const { error } = await supabase.from("saved_views").delete().eq("id", id);
-  if (error) redirect(`${returnTo}?error=${encodeURIComponent(error.message)}`);
-  refresh(["/leads", "/clients", "/companies"]);
+  if (error) redirect(`${returnTo}${returnTo.includes("?") ? "&" : "?"}error=${encodeURIComponent(error.message)}`);
+  refresh(["/crm", "/leads", "/clients", "/companies"]);
 }
 
 export async function logTouch(formData: FormData) {
@@ -209,7 +209,7 @@ export async function updateProspectStage(id: string, stage: string) {
     // Stage is already saved; a missing activity line should not undo the change.
   }
 
-  refresh([`/companies/${id}`, "/leads", "/clients", "/prospect-map", "/"]);
+  refresh([`/companies/${id}`, "/crm", "/leads", "/clients", "/prospect-map", "/"]);
   return { ok: true as const };
 }
 

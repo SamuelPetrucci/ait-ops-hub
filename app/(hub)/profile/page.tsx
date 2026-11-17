@@ -46,8 +46,8 @@ export default async function ProfilePage() {
             <Link href="/content" className="rounded-xl bg-background/40 px-3 py-2 hover:bg-background/60">
               Content + Buffer calendar
             </Link>
-            <Link href="/leads" className="rounded-xl bg-background/40 px-3 py-2 hover:bg-background/60">
-              Leads
+            <Link href="/crm" className="rounded-xl bg-background/40 px-3 py-2 hover:bg-background/60">
+              CRM
             </Link>
           </div>
           <div className="mt-4">

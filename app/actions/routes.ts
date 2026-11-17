@@ -51,6 +51,7 @@ export async function saveRoute(
     return { error: error.message };
   }
 
+  revalidatePath("/crm");
   revalidatePath("/prospect-map");
   return { id: data.id };
 }
@@ -87,6 +88,7 @@ export async function deleteRoute(id: string): Promise<{ success: boolean; error
     return { success: false, error: error.message };
   }
 
+  revalidatePath("/crm");
   revalidatePath("/prospect-map");
   return { success: true };
 }

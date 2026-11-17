@@ -12,5 +12,5 @@ export default async function CompaniesRedirect({
     if (raw) query.set(key, raw);
   }
   const suffix = query.toString();
-  redirect(suffix ? `/leads?${suffix}` : "/leads");
+  redirect(suffix ? `/crm?${suffix}` : "/crm");
 }

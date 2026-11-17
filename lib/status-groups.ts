@@ -245,6 +245,20 @@ export function getProspectGroupColor(group: ProspectStageGroup): string {
   return PROSPECT_STAGE_GROUPS[group].color;
 }
 
+/** Hex pin colors aligned to the same CRM stage groups used on Leads. */
+export const PROSPECT_STAGE_HEX: Record<ProspectStageGroup, string> = {
+  new: "#64748b",
+  outreach: "#3b82f6",
+  engaged: "#f59e0b",
+  closing: "#a855f7",
+  won: "#22c55e",
+  closed: "#ef4444",
+};
+
+export function getProspectStageHex(stage: string): string {
+  return PROSPECT_STAGE_HEX[getProspectGroupFromStage(stage)] || PROSPECT_STAGE_HEX.new;
+}
+
 export function groupProspectStages(stages: string[]): Map<ProspectStageGroup, string[]> {
   const grouped = new Map<ProspectStageGroup, string[]>();
   for (const stage of stages) {

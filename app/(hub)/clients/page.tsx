@@ -1,19 +1,15 @@
-import { ProspectDirectory } from "@/components/prospect-directory";
+import { redirect } from "next/navigation";
+import { crmSearchParams, parseCrmFilters } from "@/lib/crm";
 
 export const metadata = { title: "Clients" };
 
-export default async function ClientsPage({
+export default async function ClientsRedirectPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  return (
-    <ProspectDirectory
-      scope="clients"
-      searchParams={params}
-      title="Clients"
-      description="Won, paid, and delivered companies. Open a row to manage contacts, deals, and notes."
-    />
-  );
+  const filters = parseCrmFilters(params);
+  const qs = crmSearchParams({ scope: "clients", view: "list", filters });
+  redirect(`/crm?${qs}`);
 }

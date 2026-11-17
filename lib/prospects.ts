@@ -1,70 +1,55 @@
 import "server-only";
+import {
+  crmSearchParams,
+  parseCrmFilters,
+  stagesForScope,
+  type CrmFilters,
+  type CrmView,
+  type ProspectScope,
+} from "@/lib/crm";
 import { getProspectGroupDbStages, type ProspectStageGroup } from "@/lib/status-groups";
 
-/** Open outreach / pipeline — not yet paying clients. */
-export const LEAD_STAGES = [
-  "researched",
-  "qualified",
-  "draft",
-  "approved",
-  "sent",
-  "replied",
-  "meeting_booked",
-  "audit_proposed",
-  "implementation_proposed",
-] as const;
+export {
+  backPathForStage,
+  CLIENT_STAGES,
+  crmHref,
+  crmSearchParams,
+  LEAD_STAGES,
+  listBasePath,
+  oneParam,
+  OPEN_CRM_STAGES,
+  parseCrmFilters,
+  parseScope,
+  parseView,
+  SCOPE_LABELS,
+  SCOPE_STAGES,
+  stageAllowed,
+  stagesForScope,
+  type CrmFilters,
+  type CrmView,
+  type ProspectScope,
+} from "@/lib/crm";
 
-/** Won / delivered / paid work. */
-export const CLIENT_STAGES = ["audit_paid", "won", "delivered"] as const;
+/** @deprecated Prefer CrmFilters. */
+export type ProspectFilters = CrmFilters;
 
-export type ProspectScope = "leads" | "clients";
-
-export const SCOPE_STAGES: Record<ProspectScope, readonly string[]> = {
-  leads: LEAD_STAGES,
-  clients: CLIENT_STAGES,
-};
-
-export type ProspectFilters = {
-  q: string;
-  stage: string;
-  stageGroup: string;
-  industry: string;
-  score: string;
-  followUp: string;
-  owner: string;
-  includeDnc: string;
-};
-
-export function oneParam(value: string | string[] | undefined) {
-  return Array.isArray(value) ? value[0] || "" : value || "";
+export function parseProspectFilters(params: Record<string, string | string[] | undefined>): CrmFilters {
+  return parseCrmFilters(params);
 }
 
-export function parseProspectFilters(params: Record<string, string | string[] | undefined>): ProspectFilters {
-  return {
-    q: oneParam(params.q).trim(),
-    stage: oneParam(params.stage).trim(),
-    stageGroup: oneParam(params.stageGroup).trim(),
-    industry: oneParam(params.industry).trim(),
-    score: oneParam(params.score).trim(),
-    followUp: oneParam(params.followUp).trim(),
-    owner: oneParam(params.owner).trim(),
-    includeDnc: oneParam(params.includeDnc).trim(),
-  };
-}
-
-export function filtersToSearchParams(filters: ProspectFilters, page?: number) {
-  const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
-    if (value) params.set(key, value);
-  }
-  if (page && page > 1) params.set("page", String(page));
-  return params.toString();
+export function filtersToSearchParams(
+  filters: CrmFilters,
+  page?: number,
+  scope?: ProspectScope,
+  view?: CrmView,
+) {
+  return crmSearchParams({ scope, view, filters, page });
 }
 
 /** Apply list filters. Scope stages always constrain the set. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function applyProspectFilters(query: any, scope: ProspectScope, filters: ProspectFilters, today: string) {
-  const allowed = SCOPE_STAGES[scope];
+export function applyProspectFilters(query: any, scope: ProspectScope, filters: CrmFilters, today: string) {
+  const allowed = stagesForScope(scope, filters.includeDnc === "1");
   const stage = filters.stage && allowed.includes(filters.stage) ? filters.stage : "";
   const stageGroup = filters.stageGroup as ProspectStageGroup | "";
 
@@ -77,8 +62,6 @@ export function applyProspectFilters(query: any, scope: ProspectScope, filters: 
     } else {
       query = query.in("stage", [...allowed]);
     }
-  } else if (scope === "leads" && filters.includeDnc === "1") {
-    query = query.in("stage", [...LEAD_STAGES, "do_not_contact"]);
   } else {
     query = query.in("stage", [...allowed]);
   }
@@ -88,10 +71,17 @@ export function applyProspectFilters(query: any, scope: ProspectScope, filters: 
     if (q) query = query.or(`company.ilike.%${q}%,contact.ilike.%${q}%,website.ilike.%${q}%`);
   }
   if (filters.industry) query = query.eq("industry", filters.industry);
+  if (filters.town) query = query.eq("city", filters.town);
+  if (filters.routeId) query = query.eq("route_id", filters.routeId);
 
   const minScore = Number(filters.score);
   if (filters.score !== "" && Number.isFinite(minScore)) {
     query = query.gte("lead_score", minScore);
+  }
+
+  const maxDistance = Number(filters.maxDistance);
+  if (filters.maxDistance !== "" && Number.isFinite(maxDistance)) {
+    query = query.lte("miles_from_home", maxDistance);
   }
 
   if (filters.followUp === "overdue") query = query.lt("next_follow_up_due", today);
@@ -103,13 +93,4 @@ export function applyProspectFilters(query: any, scope: ProspectScope, filters: 
   if (filters.owner) query = query.eq("deal_owner", filters.owner);
 
   return query;
-}
-
-export function listBasePath(scope: ProspectScope) {
-  return scope === "clients" ? "/clients" : "/leads";
-}
-
-export function backPathForStage(stage: string | null | undefined) {
-  if (stage && CLIENT_STAGES.includes(stage as (typeof CLIENT_STAGES)[number])) return "/clients";
-  return "/leads";
 }

@@ -7,15 +7,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { requireOwner } from "@/lib/auth";
-import { formatWhen, nyToday } from "@/lib/format";
 import {
-  applyProspectFilters,
-  filtersToSearchParams,
-  listBasePath,
-  parseProspectFilters,
-  SCOPE_STAGES,
+  crmHref,
+  crmSearchParams,
+  parseCrmFilters,
+  stagesForScope,
   type ProspectScope,
-} from "@/lib/prospects";
+} from "@/lib/crm";
+import { formatWhen, nyToday } from "@/lib/format";
+import { applyProspectFilters } from "@/lib/prospects";
 import {
   getProspectGroupFromStage,
   getProspectGroupLabel,
@@ -52,20 +52,17 @@ const FOLLOW_UP_OPTIONS = [
 export async function ProspectDirectory({
   scope,
   searchParams,
-  title,
-  description,
 }: {
   scope: ProspectScope;
   searchParams: Record<string, string | string[] | undefined>;
-  title: string;
-  description: string;
 }) {
-  const filters = parseProspectFilters(searchParams);
+  const filters = parseCrmFilters(searchParams);
   const page = Math.max(1, Number(Array.isArray(searchParams.page) ? searchParams.page[0] : searchParams.page) || 1);
   const { supabase } = await requireOwner();
   const today = nyToday();
-  const base = listBasePath(scope);
-  const allowedStages = SCOPE_STAGES[scope];
+  const base = "/crm";
+  const clearHref = crmHref({ scope, view: "list" });
+  const allowedStages = stagesForScope(scope, filters.includeDnc === "1");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase builder typing blows up with chained filters
   let query: any = supabase
@@ -79,7 +76,6 @@ export async function ProspectDirectory({
   query = applyProspectFilters(query, scope, filters, today);
 
   const from = (page - 1) * PAGE_SIZE;
-  const scopeStages = scope === "leads" && filters.includeDnc === "1" ? [...allowedStages, "do_not_contact"] : [...allowedStages];
 
   const [{ data, error, count }, { data: views }, { data: facetRows }] = await Promise.all([
     query.range(from, from + PAGE_SIZE - 1) as Promise<{
@@ -88,11 +84,13 @@ export async function ProspectDirectory({
       count: number | null;
     }>,
     supabase.from("saved_views").select("id, name, filters").eq("resource", "prospects").order("name"),
-    supabase.from("prospects").select("stage, industry, deal_owner, lead_score, next_follow_up_due").in("stage", scopeStages),
+    supabase
+      .from("prospects")
+      .select("stage, industry, deal_owner, lead_score, next_follow_up_due")
+      .in("stage", allowedStages),
   ]);
   if (error) throw new Error(error.message);
 
-  const stageCounts = new Map<string, number>();
   const groupCounts = new Map<ProspectStageGroup, number>();
   const industryCounts = new Map<string, number>();
   const ownerCounts = new Map<string, number>();
@@ -100,7 +98,6 @@ export async function ProspectDirectory({
   let overdueCount = 0;
   let scoredHot = 0;
   for (const row of facetRows ?? []) {
-    stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
     const group = getProspectGroupFromStage(row.stage);
     groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
     if (row.industry) industryCounts.set(row.industry, (industryCounts.get(row.industry) || 0) + 1);
@@ -112,8 +109,9 @@ export async function ProspectDirectory({
     if (Number(row.lead_score) >= 50) scoredHot += 1;
   }
 
-  const stageOptions = allowedStages.filter((stage) => (stageCounts.get(stage) || 0) > 0 || filters.stage === stage);
-  const groupOptions = PROSPECT_GROUP_ORDER.filter((group) => (groupCounts.get(group) || 0) > 0 || filters.stageGroup === group);
+  const groupOptions = PROSPECT_GROUP_ORDER.filter(
+    (group) => (groupCounts.get(group) || 0) > 0 || filters.stageGroup === group,
+  );
   const currentStageGroup = filters.stage ? getProspectGroupFromStage(filters.stage) : filters.stageGroup;
   const industryOptions = [...industryCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
@@ -123,44 +121,43 @@ export async function ProspectDirectory({
     .map(([name]) => name);
 
   const pages = Math.max(1, Math.ceil((count || 0) / PAGE_SIZE));
-  const queryString = filtersToSearchParams(filters);
   const hasFilters = Object.values(filters).some(Boolean);
   const errorMessage = Array.isArray(searchParams.error) ? searchParams.error[0] : searchParams.error;
+  const chipHref = (partial: Partial<typeof filters>) =>
+    crmHref({ scope, view: "list", filters: { ...filters, ...partial } });
 
   return (
-    <div className="mx-auto flex w-full max-w-7xl flex-col gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-3xl font-medium tracking-tight">{title}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {count || 0} {count === 1 ? "record" : "records"}. {description}
-          </p>
-        </div>
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-sm text-muted-foreground">
+          <span className="tabular-nums font-medium text-foreground">{count || 0}</span>{" "}
+          {(count || 0) === 1 ? "record" : "records"}
+        </p>
         {hasFilters ? (
           <Button variant="outline" size="sm" asChild>
-            <Link href={base}>Clear filters</Link>
+            <Link href={clearHref}>Clear filters</Link>
           </Button>
         ) : null}
       </div>
 
       <Flash error={errorMessage} />
 
-      <div className="flex flex-wrap gap-2">
-        <QuickChip href={base} active={!hasFilters} label="All" count={facetRows?.length || 0} />
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        <QuickChip href={clearHref} active={!hasFilters} label="All" count={facetRows?.length || 0} />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "due", stage: "", stageGroup: "", score: "" })}`}
+          href={chipHref({ followUp: "due", stage: "", stageGroup: "", score: "" })}
           active={filters.followUp === "due"}
           label="Needs follow-up"
           count={dueCount}
         />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, followUp: "overdue", stage: "", stageGroup: "", score: "" })}`}
+          href={chipHref({ followUp: "overdue", stage: "", stageGroup: "", score: "" })}
           active={filters.followUp === "overdue"}
           label="Overdue"
           count={overdueCount}
         />
         <QuickChip
-          href={`${base}?${filtersToSearchParams({ ...filters, score: "50", followUp: "", stage: "", stageGroup: "" })}`}
+          href={chipHref({ score: "50", followUp: "", stage: "", stageGroup: "" })}
           active={filters.score === "50"}
           label="Score 50+"
           count={scoredHot}
@@ -168,7 +165,7 @@ export async function ProspectDirectory({
         {groupOptions.map((group) => (
           <QuickChip
             key={group}
-            href={`${base}?${filtersToSearchParams({ ...filters, stageGroup: group, stage: "", followUp: "", score: "" })}`}
+            href={chipHref({ stageGroup: group, stage: "", followUp: "", score: "" })}
             active={currentStageGroup === group && !filters.stage}
             label={getProspectGroupLabel(group)}
             count={groupCounts.get(group) || 0}
@@ -177,18 +174,34 @@ export async function ProspectDirectory({
       </div>
 
       {(views ?? []).length > 0 ? (
-        <div className="flex flex-wrap gap-2">
+        <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
           {(views ?? []).map((view) => {
             const viewFilters = (view.filters || {}) as Record<string, string>;
-            const href = `${base}?${new URLSearchParams(viewFilters).toString()}`;
+            const href = crmHref({
+              scope,
+              view: "list",
+              filters: {
+                q: viewFilters.q || "",
+                stage: viewFilters.stage || "",
+                stageGroup: viewFilters.stageGroup || "",
+                industry: viewFilters.industry || "",
+                score: viewFilters.score || "",
+                followUp: viewFilters.followUp || "",
+                owner: viewFilters.owner || "",
+                includeDnc: viewFilters.includeDnc || "",
+                town: viewFilters.town || "",
+                routeId: viewFilters.routeId || "",
+                maxDistance: viewFilters.maxDistance || "",
+              },
+            });
             return (
-              <div key={view.id} className="flex items-center gap-1">
+              <div key={view.id} className="flex shrink-0 items-center gap-1">
                 <Button variant="outline" size="sm" asChild>
                   <Link href={href}>{view.name}</Link>
                 </Button>
                 <form action={deleteView}>
                   <input type="hidden" name="id" value={view.id} />
-                  <input type="hidden" name="return_to" value={base} />
+                  <input type="hidden" name="return_to" value={crmHref({ scope })} />
                   <Button type="submit" variant="ghost" size="sm" aria-label={`Delete ${view.name}`}>
                     ×
                   </Button>
@@ -199,12 +212,19 @@ export async function ProspectDirectory({
         </div>
       ) : null}
 
-      <form method="get" action={base} className="grid gap-2 md:grid-cols-3 xl:grid-cols-6">
-        <Input name="q" defaultValue={filters.q} placeholder="Search company, contact, site" aria-label="Search" />
+      <form method="get" action={base} className="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:grid-cols-6">
+        {scope !== "leads" ? <input type="hidden" name="scope" value={scope} /> : null}
+        <Input
+          name="q"
+          defaultValue={filters.q}
+          placeholder="Search"
+          aria-label="Search"
+          className="col-span-2 sm:col-span-1"
+        />
         <select
           name="stageGroup"
           defaultValue={filters.stageGroup || (filters.stage ? getProspectGroupFromStage(filters.stage) : "")}
-          aria-label="Stage"
+          aria-label="Stage group"
           className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
         >
           <option value="">All stages</option>
@@ -260,24 +280,22 @@ export async function ProspectDirectory({
               </option>
             ))}
           </select>
-        ) : (
-          <div className="hidden xl:block" />
-        )}
-        {scope === "leads" ? (
-          <label className="flex items-center gap-2 text-sm text-muted-foreground md:col-span-2">
+        ) : null}
+        {scope === "leads" || scope === "all" ? (
+          <label className="col-span-2 flex items-center gap-2 text-sm text-muted-foreground sm:col-span-1">
             <input type="checkbox" name="includeDnc" value="1" defaultChecked={filters.includeDnc === "1"} />
-            Include do-not-contact
+            Include DNC
           </label>
         ) : null}
-        <Button type="submit" className="md:col-span-1">
-          Apply filters
+        <Button type="submit" className="col-span-2 sm:col-span-1">
+          Apply
         </Button>
       </form>
 
       <form action={saveView} className="flex flex-wrap items-center gap-2">
         <input type="hidden" name="resource" value="prospects" />
         <input type="hidden" name="filters" value={JSON.stringify(filters)} />
-        <input type="hidden" name="return_to" value={base} />
+        <input type="hidden" name="return_to" value={crmHref({ scope })} />
         <Input name="name" placeholder="Save this view" className="max-w-xs" aria-label="View name" />
         <Button type="submit" variant="outline">
           Save view
@@ -287,46 +305,51 @@ export async function ProspectDirectory({
       {(data ?? []).length === 0 ? (
         <p className="rounded-xl bg-card px-4 py-8 text-center text-sm text-muted-foreground ring-1 ring-foreground/10">
           {scope === "clients"
-            ? "No clients yet. Companies move here when a deal is won, paid, or delivered."
-            : "No leads match these filters."}
+            ? "No clients yet. Move a company to audit paid, won, or delivered."
+            : "No records match these filters."}
         </p>
       ) : (
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Company</TableHead>
-              <TableHead>Niche</TableHead>
-              <TableHead>Stage</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead>Follow-up</TableHead>
-              {ownerOptions.length > 0 ? <TableHead>Owner</TableHead> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(data ?? []).map((row) => (
-              <TableRow key={row.id}>
-                <TableCell>
-                  <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
-                    {row.company}
-                  </Link>
-                  <SiteLink website={row.website} className="block w-fit text-xs text-primary hover:underline" />
-                  <p className="text-xs text-muted-foreground">{row.contact || row.proposed_service}</p>
-                </TableCell>
-                <TableCell>{row.industry || "—"}</TableCell>
-                <TableCell>
-                  <ProspectStageSelect id={row.id} stage={row.stage} compact />
-                </TableCell>
-                <TableCell className="tabular-nums">{row.lead_score ?? "—"}</TableCell>
-                <TableCell>
-                  <span className={row.next_follow_up_due && row.next_follow_up_due < today ? "text-amber-600" : ""}>
-                    {formatWhen(row.next_follow_up_due)}
-                  </span>
-                </TableCell>
-                {ownerOptions.length > 0 ? <TableCell>{row.deal_owner || "—"}</TableCell> : null}
+        <div className="overflow-x-auto rounded-xl ring-1 ring-foreground/10">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Company</TableHead>
+                <TableHead className="hidden md:table-cell">Niche</TableHead>
+                <TableHead>Stage</TableHead>
+                <TableHead className="hidden sm:table-cell">Score</TableHead>
+                <TableHead>Follow-up</TableHead>
+                {ownerOptions.length > 0 ? <TableHead className="hidden lg:table-cell">Owner</TableHead> : null}
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {(data ?? []).map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell className="min-w-[10rem]">
+                    <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
+                      {row.company}
+                    </Link>
+                    <SiteLink website={row.website} className="block w-fit text-xs text-primary hover:underline" />
+                    <p className="text-xs text-muted-foreground md:hidden">{row.industry || row.contact || row.proposed_service}</p>
+                    <p className="hidden text-xs text-muted-foreground md:block">{row.contact || row.proposed_service}</p>
+                  </TableCell>
+                  <TableCell className="hidden md:table-cell">{row.industry || "—"}</TableCell>
+                  <TableCell>
+                    <ProspectStageSelect id={row.id} stage={row.stage} compact />
+                  </TableCell>
+                  <TableCell className="hidden tabular-nums sm:table-cell">{row.lead_score ?? "—"}</TableCell>
+                  <TableCell>
+                    <span className={row.next_follow_up_due && row.next_follow_up_due < today ? "text-amber-600" : ""}>
+                      {formatWhen(row.next_follow_up_due)}
+                    </span>
+                  </TableCell>
+                  {ownerOptions.length > 0 ? (
+                    <TableCell className="hidden lg:table-cell">{row.deal_owner || "—"}</TableCell>
+                  ) : null}
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
       )}
 
       <div className="flex items-center justify-between text-sm text-muted-foreground">
@@ -336,12 +359,14 @@ export async function ProspectDirectory({
         <div className="flex gap-2">
           {page > 1 ? (
             <Button variant="outline" size="sm" asChild>
-              <Link href={`${base}?${filtersToSearchParams(filters, page - 1)}`}>Previous</Link>
+              <Link href={`/crm?${crmSearchParams({ scope, view: "list", filters, page: page - 1 })}`}>
+                Previous
+              </Link>
             </Button>
           ) : null}
           {page < pages ? (
             <Button variant="outline" size="sm" asChild>
-              <Link href={`${base}?${filtersToSearchParams(filters, page + 1)}`}>Next</Link>
+              <Link href={`/crm?${crmSearchParams({ scope, view: "list", filters, page: page + 1 })}`}>Next</Link>
             </Button>
           ) : null}
         </div>

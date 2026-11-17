@@ -17,32 +17,23 @@ import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
 import { labelize } from "@/lib/format";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
-import type { MappedProspect, ProspectMapFilters, RouteInfo } from "@/lib/prospect-map";
+import { matchesMapFilters, type MappedProspect, type ProspectMapFilters, type RouteInfo } from "@/lib/prospect-map";
+import {
+  getProspectGroupFromStage,
+  getProspectGroupLabel,
+  getProspectStageHex,
+  PROSPECT_GROUP_ORDER,
+  PROSPECT_STAGE_HEX,
+  type ProspectStageGroup,
+} from "@/lib/status-groups";
 import type { DiscoveryPin } from "@/components/area-discovery";
 
 const HOME_POSITION: [number, number] = [41.3501, -72.0787];
 const MILE_TO_METERS = 1609.34;
 const DISTANCE_RINGS = [10, 20, 30];
 
-const STAGE_COLORS: Record<string, string> = {
-  researched: "#6b7280",
-  qualified: "#3b82f6",
-  draft: "#8b5cf6",
-  approved: "#10b981",
-  sent: "#f59e0b",
-  replied: "#22c55e",
-  meeting_booked: "#14b8a6",
-  audit_proposed: "#06b6d4",
-  audit_paid: "#0ea5e9",
-  implementation_proposed: "#8b5cf6",
-  won: "#22c55e",
-  delivered: "#10b981",
-  lost: "#ef4444",
-  do_not_contact: "#dc2626",
-};
-
 function getStageColor(stage: string): string {
-  return STAGE_COLORS[stage] || "#6b7280";
+  return getProspectStageHex(stage);
 }
 
 function createColoredIcon(color: string) {
@@ -190,15 +181,13 @@ export function ProspectMapClient({
   onMapDropPin,
 }: ProspectMapProps) {
   const filteredProspects = useMemo(() => {
-    return prospects.filter((p) => {
-      if (filters.stage && p.stage !== filters.stage) return false;
-      if (filters.routeId && p.route_id !== filters.routeId) return false;
-      if (filters.category && p.industry !== filters.category) return false;
-      if (filters.town && p.city !== filters.town) return false;
-      if (filters.maxDistance && p.miles_from_home && p.miles_from_home > filters.maxDistance) return false;
-      if (filters.minScore && (p.lead_score ?? 0) < filters.minScore) return false;
-      return true;
-    });
+    return prospects.filter((p) =>
+      matchesMapFilters(p, filters, (stage) => {
+        if (filters.stage) return stage === filters.stage;
+        if (filters.stageGroup) return getProspectGroupFromStage(stage) === filters.stageGroup;
+        return true;
+      }),
+    );
   }, [prospects, filters]);
 
   const plannedRoutePolyline = useMemo(() => {
@@ -456,14 +445,14 @@ export function ProspectMapClient({
         <div className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
           <h3 className="font-medium">Legend</h3>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            {Object.entries(STAGE_COLORS)
-              .filter(([stage]) => prospects.some((p) => p.stage === stage))
-              .map(([stage, color]) => (
-                <div key={stage} className="flex items-center gap-2">
-                  <div className="h-3 w-3 rounded-full" style={{ backgroundColor: color }} />
-                  <span>{labelize(stage)}</span>
-                </div>
-              ))}
+            {PROSPECT_GROUP_ORDER.filter((group) =>
+              prospects.some((p) => getProspectGroupFromStage(p.stage) === group),
+            ).map((group: ProspectStageGroup) => (
+              <div key={group} className="flex items-center gap-2">
+                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PROSPECT_STAGE_HEX[group] }} />
+                <span>{getProspectGroupLabel(group)}</span>
+              </div>
+            ))}
           </div>
           <div className="mt-2 space-y-1 border-t border-border pt-2">
             <div className="flex items-center gap-2 text-xs">

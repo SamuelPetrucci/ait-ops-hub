@@ -120,9 +120,7 @@ export type NavLink = {
 /** Only surfaces that are first-class and functional in the hub. */
 export const NAV: readonly NavLink[] = [
   { href: "/", label: "Overview" },
-  { href: "/leads", label: "Leads" },
-  { href: "/clients", label: "Clients" },
-  { href: "/prospect-map", label: "Sales Map" },
+  { href: "/crm", label: "CRM" },
   {
     href: "/content",
     label: "Content",

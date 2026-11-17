@@ -117,7 +117,7 @@ export default async function OverviewPage() {
           </p>
           <div className="mt-5 flex flex-wrap gap-2">
             <Pill href="/approvals">{inReview.count || 0} in review</Pill>
-            <Pill href="/leads?followUp=due">{dueRows.length} follow-ups</Pill>
+            <Pill href="/crm?followUp=due">{dueRows.length} follow-ups</Pill>
             <Pill href="/content?status=approved">Ready to schedule</Pill>
             <Pill href="/content">Content desk</Pill>
           </div>
@@ -125,9 +125,9 @@ export default async function OverviewPage() {
       </header>
 
       <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Metric href="/leads" label="Leads" value={String(leadCount.count || 0)} hint="Open pipeline" />
-        <Metric href="/leads?followUp=due" label="Due now" value={String(dueRows.length)} hint="Follow-ups" />
-        <Metric href="/clients" label="Clients" value={String(clientCount.count || 0)} hint="Won / paid / delivered" />
+        <Metric href="/crm" label="Leads" value={String(leadCount.count || 0)} hint="Open pipeline" />
+        <Metric href="/crm?followUp=due" label="Due now" value={String(dueRows.length)} hint="Follow-ups" />
+        <Metric href="/crm?scope=clients" label="Clients" value={String(clientCount.count || 0)} hint="Won / paid / delivered" />
         <Metric
           href="/content"
           label="Buffer views"
@@ -146,8 +146,8 @@ export default async function OverviewPage() {
               <p className="text-[11px] tracking-[0.16em] text-muted-foreground uppercase">Pipeline</p>
               <h2 className="text-lg font-medium">Follow-ups due</h2>
             </div>
-            <Link href="/leads" className="text-xs text-muted-foreground transition hover:text-foreground">
-              All leads
+            <Link href="/crm" className="text-xs text-muted-foreground transition hover:text-foreground">
+              Open CRM
             </Link>
           </div>
           {dueRows.length === 0 ? (
