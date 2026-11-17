@@ -15,6 +15,9 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
+import type { DiscoveryPin } from "@/components/area-discovery";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
+import { PROSPECT_STAGES } from "@/lib/constants";
 import { stageLabel } from "@/lib/crm";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { matchesMapFilters, type MappedProspect, type ProspectMapFilters, type RouteInfo } from "@/lib/prospect-map";
@@ -23,8 +26,6 @@ import {
   getProspectStageHex,
   PROSPECT_PIPELINE_HEX,
 } from "@/lib/status-groups";
-import type { DiscoveryPin } from "@/components/area-discovery";
-import { PROSPECT_STAGES } from "@/lib/constants";
 
 const HOME_POSITION: [number, number] = [41.3501, -72.0787];
 const MILE_TO_METERS = 1609.34;
@@ -367,6 +368,10 @@ export function ProspectMapClient({
                       <span>{prospect.miles_from_home?.toFixed(1) ?? "—"} mi</span>
                       <span className="text-muted-foreground">Drive:</span>
                       <span>{prospect.drive_minutes?.toFixed(0) ?? "—"} min</span>
+                    </div>
+                    <div className="pt-1">
+                      <p className="mb-1 text-xs text-muted-foreground">Opportunity score</p>
+                      <ProspectScoreSelect id={prospect.id} score={prospect.lead_score} compact />
                     </div>
                     {prospect.primary_opportunity && (
                       <p className="text-xs">

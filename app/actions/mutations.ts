@@ -213,6 +213,43 @@ export async function updateProspectStage(id: string, stage: string) {
   return { ok: true as const };
 }
 
+/** Manual opportunity score from field observation while browsing. */
+export async function updateProspectScore(id: string, score: number | null) {
+  if (!UUID.test(id)) {
+    return { ok: false as const, error: "That score update is not valid." };
+  }
+  if (score != null && (!Number.isFinite(score) || score < 0 || score > 100)) {
+    return { ok: false as const, error: "Score must be between 0 and 100." };
+  }
+
+  const leadScore = score == null ? null : Math.round(score);
+  const { supabase } = await requireOwner();
+  const { data, error } = await supabase
+    .from("prospects")
+    .update({ lead_score: leadScore })
+    .eq("id", id)
+    .select("id, company, lead_score")
+    .maybeSingle();
+
+  if (error || !data) {
+    return { ok: false as const, error: error?.message || "Could not update that score." };
+  }
+
+  try {
+    await logActivity(supabase, {
+      entityType: "prospect",
+      entityId: id,
+      action: "score_change",
+      details: { lead_score: leadScore, company: data.company },
+    });
+  } catch {
+    // Score is already saved.
+  }
+
+  refresh([`/companies/${id}`, "/crm", "/leads", "/clients", "/prospect-map", "/"]);
+  return { ok: true as const, score: leadScore };
+}
+
 export async function createDeal(formData: FormData) {
   const { supabase } = await requireOwner();
   const prospectId = text(formData, "prospect_id");

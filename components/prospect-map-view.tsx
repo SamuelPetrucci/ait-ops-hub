@@ -20,6 +20,7 @@ import { reverseGeocodePin } from "@/app/actions/discover";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
 import { AreaDiscovery, type DiscoveryPin } from "@/components/area-discovery";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import {
@@ -972,8 +973,8 @@ export function ProspectMapView({
                     <TableCell>
                       <Badge variant="outline" className="text-xs">{stageLabel(p.stage)}</Badge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums hidden sm:table-cell">
-                      {p.lead_score ?? "—"}
+                    <TableCell className="hidden sm:table-cell">
+                      <ProspectScoreSelect id={p.id} score={p.lead_score} compact />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {p.miles_from_home?.toFixed(1) ?? "—"} mi

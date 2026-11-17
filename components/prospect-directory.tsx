@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { deleteView, saveView } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
 import { ProspectStageSelect } from "@/components/prospect-stage-select";
 import { SiteLink } from "@/components/site-link";
 import { Button } from "@/components/ui/button";
@@ -335,7 +336,9 @@ export async function ProspectDirectory({
                   <TableCell>
                     <ProspectStageSelect id={row.id} stage={row.stage} compact />
                   </TableCell>
-                  <TableCell className="hidden tabular-nums sm:table-cell">{row.lead_score ?? "—"}</TableCell>
+                  <TableCell className="hidden sm:table-cell">
+                    <ProspectScoreSelect id={row.id} score={row.lead_score} compact />
+                  </TableCell>
                   <TableCell>
                     <span className={row.next_follow_up_due && row.next_follow_up_due < today ? "text-amber-600" : ""}>
                       {formatWhen(row.next_follow_up_due)}

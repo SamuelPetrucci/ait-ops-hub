@@ -95,6 +95,18 @@ export function stageLabel(stage: string | null | undefined) {
     .join(" ");
 }
 
+/** Manual opportunity scores for field / browse judgment. */
+export const OPPORTUNITY_SCORE_OPTIONS = [
+  ["", "Unscored"],
+  ["25", "25 · Cold"],
+  ["40", "40 · Low"],
+  ["50", "50 · Maybe"],
+  ["60", "60 · Solid"],
+  ["75", "75 · Opportunity"],
+  ["90", "90 · Strong"],
+  ["100", "100 · Must win"],
+] as const;
+
 export const TASK_COLUMNS = [
   ["not_started", "Not started"],
   ["in_progress", "In progress"],
