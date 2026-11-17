@@ -96,6 +96,26 @@ export function stagesForScope(scope: ProspectScope, includeDnc = false): string
   return base;
 }
 
+/**
+ * Full pipeline statuses offered in CRM filters — includes empty stages and
+ * closed statuses (Lost / DNC) so the dropdown always matches the sales pipeline.
+ */
+export function filterStagesForScope(scope: ProspectScope): string[] {
+  if (scope === "clients") {
+    return PROSPECT_STAGES.filter(
+      (stage) =>
+        CLIENT_STAGES.includes(stage as (typeof CLIENT_STAGES)[number]) ||
+        stage === "lost" ||
+        stage === "do_not_contact",
+    );
+  }
+  return [...PROSPECT_STAGES];
+}
+
+export function isProspectStage(stage: string) {
+  return (PROSPECT_STAGES as readonly string[]).includes(stage);
+}
+
 export function crmSearchParams(
   opts: {
     scope?: ProspectScope;
@@ -145,9 +165,11 @@ export function stageAllowed(
   scope: ProspectScope,
   filters: Pick<CrmFilters, "stage" | "stageGroup" | "includeDnc">,
 ) {
+  // Exact stage filter always wins (including Lost / DNC).
+  if (filters.stage) return stage === filters.stage;
+
   const allowed = stagesForScope(scope, filters.includeDnc === "1");
   if (!allowed.includes(stage)) return false;
-  if (filters.stage) return stage === filters.stage;
   if (filters.stageGroup) {
     const groupStages = getProspectGroupDbStages(filters.stageGroup as ProspectStageGroup).filter((s) =>
       allowed.includes(s),
@@ -173,15 +195,13 @@ export function stageOptionsWithCounts(
   scope: ProspectScope,
   counts: Map<string, number> | Record<string, number>,
   currentStage = "",
-  includeDnc = false,
 ) {
   const getCount = (stage: string) =>
     counts instanceof Map ? counts.get(stage) || 0 : counts[stage] || 0;
-  return pipelineStagesForScope(scope, includeDnc)
-    .filter((stage) => getCount(stage) > 0 || stage === currentStage)
-    .map((stage) => ({
-      value: stage,
-      label: stageLabel(stage),
-      count: getCount(stage),
-    }));
+  return filterStagesForScope(scope).map((stage) => ({
+    value: stage,
+    label: stageLabel(stage),
+    count: getCount(stage),
+    active: stage === currentStage,
+  }));
 }

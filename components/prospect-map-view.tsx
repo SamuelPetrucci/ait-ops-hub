@@ -25,7 +25,7 @@ import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import {
   crmSearchParams,
-  pipelineStagesForScope,
+  filterStagesForScope,
   stageAllowed,
   stageLabel,
   type CrmFilters,
@@ -98,12 +98,14 @@ export function ProspectMapView({
   const [filters, setFilters] = useState<ProspectMapFilters>(() => mapFiltersFromCrm(initialFilters));
   const [showRoutes, setShowRoutes] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const pipelineStages = useMemo(() => {
-    const present = new Set(mapped.map((p) => p.stage));
-    return pipelineStagesForScope(scope, initialFilters?.includeDnc === "1").filter(
-      (stage) => present.has(stage) || filters.stage === stage,
-    );
-  }, [mapped, scope, initialFilters?.includeDnc, filters.stage]);
+  const pipelineStages = useMemo(() => filterStagesForScope(scope), [scope]);
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of mapped) {
+      counts.set(row.stage, (counts.get(row.stage) || 0) + 1);
+    }
+    return counts;
+  }, [mapped]);
 
   const syncFiltersToUrl = (next: ProspectMapFilters) => {
     if (!pathname.startsWith("/crm")) return;
@@ -431,7 +433,7 @@ export function ProspectMapView({
             <option value="">All pipeline stages</option>
             {pipelineStages.map((stage) => (
               <option key={stage} value={stage}>
-                {stageLabel(stage)}
+                {stageLabel(stage)} ({stageCounts.get(stage) || 0})
               </option>
             ))}
           </select>

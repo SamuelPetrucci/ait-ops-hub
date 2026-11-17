@@ -1,6 +1,7 @@
 import "server-only";
 import {
   crmSearchParams,
+  isProspectStage,
   parseCrmFilters,
   stagesForScope,
   type CrmFilters,
@@ -14,6 +15,8 @@ export {
   CLIENT_STAGES,
   crmHref,
   crmSearchParams,
+  filterStagesForScope,
+  isProspectStage,
   LEAD_STAGES,
   listBasePath,
   oneParam,
@@ -46,14 +49,15 @@ export function filtersToSearchParams(
   return crmSearchParams({ scope, view, filters, page });
 }
 
-/** Apply list filters. Scope stages always constrain the set. */
+/** Apply list filters. Scope stages constrain the set unless an exact stage is chosen. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function applyProspectFilters(query: any, scope: ProspectScope, filters: CrmFilters, today: string) {
   const allowed = stagesForScope(scope, filters.includeDnc === "1");
-  const stage = filters.stage && allowed.includes(filters.stage) ? filters.stage : "";
+  const stage = filters.stage && isProspectStage(filters.stage) ? filters.stage : "";
   const stageGroup = filters.stageGroup as ProspectStageGroup | "";
 
   if (stage) {
+    // Exact pipeline stage (including Lost / DNC) always wins over open-scope defaults.
     query = query.eq("stage", stage);
   } else if (stageGroup) {
     const groupStages = getProspectGroupDbStages(stageGroup).filter((s) => allowed.includes(s));

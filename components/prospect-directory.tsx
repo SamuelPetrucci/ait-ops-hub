@@ -11,8 +11,8 @@ import { requireOwner } from "@/lib/auth";
 import {
   crmHref,
   crmSearchParams,
+  filterStagesForScope,
   parseCrmFilters,
-  pipelineStagesForScope,
   stageLabel,
   stagesForScope,
   type ProspectScope,
@@ -59,7 +59,8 @@ export async function ProspectDirectory({
   const today = nyToday();
   const base = "/crm";
   const clearHref = crmHref({ scope, view: "list" });
-  const allowedStages = stagesForScope(scope, filters.includeDnc === "1");
+  const openStages = stagesForScope(scope, filters.includeDnc === "1");
+  const pipelineStages = filterStagesForScope(scope);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase builder typing blows up with chained filters
   let query: any = supabase
@@ -74,7 +75,7 @@ export async function ProspectDirectory({
 
   const from = (page - 1) * PAGE_SIZE;
 
-  const [{ data, error, count }, { data: views }, { data: facetRows }] = await Promise.all([
+  const [{ data, error, count }, { data: views }, { data: facetRows }, { data: stageFacetRows }] = await Promise.all([
     query.range(from, from + PAGE_SIZE - 1) as Promise<{
       data: ProspectRow[] | null;
       error: { message: string } | null;
@@ -84,18 +85,22 @@ export async function ProspectDirectory({
     supabase
       .from("prospects")
       .select("stage, industry, deal_owner, lead_score, next_follow_up_due")
-      .in("stage", allowedStages),
+      .in("stage", openStages),
+    supabase.from("prospects").select("stage").in("stage", pipelineStages),
   ]);
   if (error) throw new Error(error.message);
 
   const stageCounts = new Map<string, number>();
+  for (const row of stageFacetRows ?? []) {
+    stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
+  }
+
   const industryCounts = new Map<string, number>();
   const ownerCounts = new Map<string, number>();
   let dueCount = 0;
   let overdueCount = 0;
   let scoredHot = 0;
   for (const row of facetRows ?? []) {
-    stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
     if (row.industry) industryCounts.set(row.industry, (industryCounts.get(row.industry) || 0) + 1);
     if (row.deal_owner) ownerCounts.set(row.deal_owner, (ownerCounts.get(row.deal_owner) || 0) + 1);
     if (row.next_follow_up_due) {
@@ -104,11 +109,6 @@ export async function ProspectDirectory({
     }
     if (Number(row.lead_score) >= 50) scoredHot += 1;
   }
-
-  const pipelineStages = pipelineStagesForScope(scope, filters.includeDnc === "1");
-  const stageChipStages = pipelineStages.filter(
-    (stage) => (stageCounts.get(stage) || 0) > 0 || filters.stage === stage,
-  );
   const industryOptions = [...industryCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
@@ -160,8 +160,8 @@ export async function ProspectDirectory({
         />
       </div>
 
-      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
-        {stageChipStages.map((stage) => (
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Pipeline stages">
+        {pipelineStages.map((stage) => (
           <QuickChip
             key={stage}
             href={chipHref({ stage, stageGroup: "", followUp: "", score: "" })}
@@ -229,8 +229,7 @@ export async function ProspectDirectory({
           <option value="">All pipeline stages</option>
           {pipelineStages.map((stage) => (
             <option key={stage} value={stage}>
-              {stageLabel(stage)}
-              {(stageCounts.get(stage) || 0) > 0 ? ` (${stageCounts.get(stage)})` : ""}
+              {stageLabel(stage)} ({stageCounts.get(stage) || 0})
             </option>
           ))}
         </select>

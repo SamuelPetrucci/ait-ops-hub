@@ -35,12 +35,12 @@ export default async function CrmPage({
   const title = view === "map" ? "Sales map" : SCOPE_LABELS[scope];
   const description =
     view === "map"
-      ? "Same sales pipeline as the list — filter Researched, Qualified, Draft, Won, and the rest."
+      ? "Filter by every pipeline status — Researched through Delivered, plus Lost."
       : scope === "clients"
         ? "Audit paid, won, and delivered companies."
         : scope === "all"
-          ? "Full pipeline: researched → qualified → draft → sent → won and more."
-          : "Sales pipeline stages: researched, qualified, draft, sent, replied, meeting, proposal, won.";
+          ? "Full pipeline statuses available to filter: Researched → Delivered, Lost, DNC."
+          : "Filter by Researched, Qualified, Draft, Sent, Replied, Meeting, Proposal, Won, and more.";
 
   return (
     <CrmChrome scope={scope} view={view} filters={filters} title={title} description={description}>
