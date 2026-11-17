@@ -11,17 +11,13 @@ import {
   crmHref,
   crmSearchParams,
   parseCrmFilters,
+  pipelineStagesForScope,
+  stageLabel,
   stagesForScope,
   type ProspectScope,
 } from "@/lib/crm";
 import { formatWhen, nyToday } from "@/lib/format";
 import { applyProspectFilters } from "@/lib/prospects";
-import {
-  getProspectGroupFromStage,
-  getProspectGroupLabel,
-  PROSPECT_GROUP_ORDER,
-  type ProspectStageGroup,
-} from "@/lib/status-groups";
 
 const PAGE_SIZE = 40;
 
@@ -91,15 +87,14 @@ export async function ProspectDirectory({
   ]);
   if (error) throw new Error(error.message);
 
-  const groupCounts = new Map<ProspectStageGroup, number>();
+  const stageCounts = new Map<string, number>();
   const industryCounts = new Map<string, number>();
   const ownerCounts = new Map<string, number>();
   let dueCount = 0;
   let overdueCount = 0;
   let scoredHot = 0;
   for (const row of facetRows ?? []) {
-    const group = getProspectGroupFromStage(row.stage);
-    groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
+    stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
     if (row.industry) industryCounts.set(row.industry, (industryCounts.get(row.industry) || 0) + 1);
     if (row.deal_owner) ownerCounts.set(row.deal_owner, (ownerCounts.get(row.deal_owner) || 0) + 1);
     if (row.next_follow_up_due) {
@@ -109,10 +104,10 @@ export async function ProspectDirectory({
     if (Number(row.lead_score) >= 50) scoredHot += 1;
   }
 
-  const groupOptions = PROSPECT_GROUP_ORDER.filter(
-    (group) => (groupCounts.get(group) || 0) > 0 || filters.stageGroup === group,
+  const pipelineStages = pipelineStagesForScope(scope, filters.includeDnc === "1");
+  const stageChipStages = pipelineStages.filter(
+    (stage) => (stageCounts.get(stage) || 0) > 0 || filters.stage === stage,
   );
-  const currentStageGroup = filters.stage ? getProspectGroupFromStage(filters.stage) : filters.stageGroup;
   const industryOptions = [...industryCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
@@ -146,29 +141,32 @@ export async function ProspectDirectory({
         <QuickChip href={clearHref} active={!hasFilters} label="All" count={facetRows?.length || 0} />
         <QuickChip
           href={chipHref({ followUp: "due", stage: "", stageGroup: "", score: "" })}
-          active={filters.followUp === "due"}
+          active={filters.followUp === "due" && !filters.stage}
           label="Needs follow-up"
           count={dueCount}
         />
         <QuickChip
           href={chipHref({ followUp: "overdue", stage: "", stageGroup: "", score: "" })}
-          active={filters.followUp === "overdue"}
+          active={filters.followUp === "overdue" && !filters.stage}
           label="Overdue"
           count={overdueCount}
         />
         <QuickChip
           href={chipHref({ score: "50", followUp: "", stage: "", stageGroup: "" })}
-          active={filters.score === "50"}
+          active={filters.score === "50" && !filters.stage}
           label="Score 50+"
           count={scoredHot}
         />
-        {groupOptions.map((group) => (
+      </div>
+
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1">
+        {stageChipStages.map((stage) => (
           <QuickChip
-            key={group}
-            href={chipHref({ stageGroup: group, stage: "", followUp: "", score: "" })}
-            active={currentStageGroup === group && !filters.stage}
-            label={getProspectGroupLabel(group)}
-            count={groupCounts.get(group) || 0}
+            key={stage}
+            href={chipHref({ stage, stageGroup: "", followUp: "", score: "" })}
+            active={filters.stage === stage}
+            label={stageLabel(stage)}
+            count={stageCounts.get(stage) || 0}
           />
         ))}
       </div>
@@ -222,15 +220,16 @@ export async function ProspectDirectory({
           className="col-span-2 sm:col-span-1"
         />
         <select
-          name="stageGroup"
-          defaultValue={filters.stageGroup || (filters.stage ? getProspectGroupFromStage(filters.stage) : "")}
-          aria-label="Stage group"
+          name="stage"
+          defaultValue={filters.stage}
+          aria-label="Pipeline stage"
           className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
         >
-          <option value="">All stages</option>
-          {groupOptions.map((group) => (
-            <option key={group} value={group}>
-              {getProspectGroupLabel(group)} ({groupCounts.get(group) || 0})
+          <option value="">All pipeline stages</option>
+          {pipelineStages.map((stage) => (
+            <option key={stage} value={stage}>
+              {stageLabel(stage)}
+              {(stageCounts.get(stage) || 0) > 0 ? ` (${stageCounts.get(stage)})` : ""}
             </option>
           ))}
         </select>

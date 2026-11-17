@@ -15,18 +15,16 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import Link from "next/link";
 import { Badge } from "@/components/ui/badge";
-import { labelize } from "@/lib/format";
+import { stageLabel } from "@/lib/crm";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { matchesMapFilters, type MappedProspect, type ProspectMapFilters, type RouteInfo } from "@/lib/prospect-map";
 import {
   getProspectGroupFromStage,
-  getProspectGroupLabel,
   getProspectStageHex,
-  PROSPECT_GROUP_ORDER,
-  PROSPECT_STAGE_HEX,
-  type ProspectStageGroup,
+  PROSPECT_PIPELINE_HEX,
 } from "@/lib/status-groups";
 import type { DiscoveryPin } from "@/components/area-discovery";
+import { PROSPECT_STAGES } from "@/lib/constants";
 
 const HOME_POSITION: [number, number] = [41.3501, -72.0787];
 const MILE_TO_METERS = 1609.34;
@@ -341,7 +339,7 @@ export function ProspectMapClient({
                     </Link>
                     <div className="flex flex-wrap gap-1">
                       <Badge variant="outline" className="text-xs">
-                        {labelize(prospect.stage)}
+                        {stageLabel(prospect.stage)}
                       </Badge>
                       {prospect.industry && (
                         <Badge variant="secondary" className="text-xs">
@@ -445,12 +443,13 @@ export function ProspectMapClient({
         <div className="space-y-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10">
           <h3 className="font-medium">Legend</h3>
           <div className="grid grid-cols-2 gap-2 text-xs">
-            {PROSPECT_GROUP_ORDER.filter((group) =>
-              prospects.some((p) => getProspectGroupFromStage(p.stage) === group),
-            ).map((group: ProspectStageGroup) => (
-              <div key={group} className="flex items-center gap-2">
-                <div className="h-3 w-3 rounded-full" style={{ backgroundColor: PROSPECT_STAGE_HEX[group] }} />
-                <span>{getProspectGroupLabel(group)}</span>
+            {PROSPECT_STAGES.filter((stage) => prospects.some((p) => p.stage === stage)).map((stage) => (
+              <div key={stage} className="flex items-center gap-2">
+                <div
+                  className="h-3 w-3 rounded-full"
+                  style={{ backgroundColor: PROSPECT_PIPELINE_HEX[stage] || getProspectStageHex(stage) }}
+                />
+                <span>{stageLabel(stage)}</span>
               </div>
             ))}
           </div>

@@ -1,9 +1,12 @@
+import { PROSPECT_STAGES, stageLabel } from "@/lib/constants";
 import {
   getProspectGroupDbStages,
   getProspectGroupFromStage,
   PROSPECT_GROUP_ORDER,
   type ProspectStageGroup,
 } from "@/lib/status-groups";
+
+export { stageLabel, PROSPECT_STAGES };
 
 /** Open outreach / pipeline — not yet paying clients. */
 export const LEAD_STAGES = [
@@ -158,4 +161,27 @@ export function groupOptionsForStages(stages: Iterable<string>, currentGroup = "
   const present = new Set<ProspectStageGroup>();
   for (const stage of stages) present.add(getProspectGroupFromStage(stage));
   return PROSPECT_GROUP_ORDER.filter((group) => present.has(group) || group === currentGroup);
+}
+
+/** Pipeline stages in sales order, scoped to the current CRM view. */
+export function pipelineStagesForScope(scope: ProspectScope, includeDnc = false) {
+  const allowed = new Set(stagesForScope(scope, includeDnc));
+  return PROSPECT_STAGES.filter((stage) => allowed.has(stage));
+}
+
+export function stageOptionsWithCounts(
+  scope: ProspectScope,
+  counts: Map<string, number> | Record<string, number>,
+  currentStage = "",
+  includeDnc = false,
+) {
+  const getCount = (stage: string) =>
+    counts instanceof Map ? counts.get(stage) || 0 : counts[stage] || 0;
+  return pipelineStagesForScope(scope, includeDnc)
+    .filter((stage) => getCount(stage) > 0 || stage === currentStage)
+    .map((stage) => ({
+      value: stage,
+      label: stageLabel(stage),
+      count: getCount(stage),
+    }));
 }

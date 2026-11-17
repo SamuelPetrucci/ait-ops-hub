@@ -255,8 +255,26 @@ export const PROSPECT_STAGE_HEX: Record<ProspectStageGroup, string> = {
   closed: "#ef4444",
 };
 
+/** Distinct pin colors for each sales-pipeline stage (still loosely grouped). */
+export const PROSPECT_PIPELINE_HEX: Record<string, string> = {
+  researched: "#64748b",
+  qualified: "#475569",
+  draft: "#3b82f6",
+  approved: "#2563eb",
+  sent: "#1d4ed8",
+  replied: "#f59e0b",
+  meeting_booked: "#d97706",
+  audit_proposed: "#a855f7",
+  implementation_proposed: "#7c3aed",
+  audit_paid: "#22c55e",
+  won: "#16a34a",
+  delivered: "#15803d",
+  lost: "#ef4444",
+  do_not_contact: "#dc2626",
+};
+
 export function getProspectStageHex(stage: string): string {
-  return PROSPECT_STAGE_HEX[getProspectGroupFromStage(stage)] || PROSPECT_STAGE_HEX.new;
+  return PROSPECT_PIPELINE_HEX[stage] || PROSPECT_STAGE_HEX[getProspectGroupFromStage(stage)] || PROSPECT_STAGE_HEX.new;
 }
 
 export function groupProspectStages(stages: string[]): Map<ProspectStageGroup, string[]> {
