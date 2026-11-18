@@ -313,38 +313,44 @@ export async function ProspectDirectory({
             <TableHeader>
               <TableRow>
                 <TableHead>Company</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="hidden sm:table-cell">Site</TableHead>
                 <TableHead className="hidden md:table-cell">Niche</TableHead>
-                <TableHead>Stage</TableHead>
                 <TableHead className="hidden sm:table-cell">Score</TableHead>
-                <TableHead>Follow-up</TableHead>
-                {ownerOptions.length > 0 ? <TableHead className="hidden lg:table-cell">Owner</TableHead> : null}
+                <TableHead className="hidden lg:table-cell">Follow-up</TableHead>
+                {ownerOptions.length > 0 ? <TableHead className="hidden xl:table-cell">Owner</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {(data ?? []).map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="min-w-[10rem]">
+                  <TableCell className="min-w-[9rem] max-w-[14rem]">
                     <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
                       {row.company}
                     </Link>
-                    <SiteLink website={row.website} className="block w-fit text-xs text-primary hover:underline" />
-                    <p className="text-xs text-muted-foreground md:hidden">{row.industry || row.contact || row.proposed_service}</p>
-                    <p className="hidden text-xs text-muted-foreground md:block">{row.contact || row.proposed_service}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:hidden">
+                      <SiteLink website={row.website} className="w-fit text-xs text-primary hover:underline" />
+                      {row.industry ? <span className="text-xs text-muted-foreground">{row.industry}</span> : null}
+                    </div>
                   </TableCell>
-                  <TableCell className="hidden md:table-cell">{row.industry || "—"}</TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <ProspectStageSelect id={row.id} stage={row.stage} compact />
                   </TableCell>
-                  <TableCell className="hidden sm:table-cell">
+                  <TableCell className="hidden align-top sm:table-cell">
+                    <SiteLink website={row.website} className="text-sm text-primary hover:underline" />
+                    {!row.website ? <span className="text-sm text-muted-foreground">—</span> : null}
+                  </TableCell>
+                  <TableCell className="hidden align-top md:table-cell">{row.industry || "—"}</TableCell>
+                  <TableCell className="hidden align-top sm:table-cell">
                     <ProspectScoreSelect id={row.id} score={row.lead_score} compact />
                   </TableCell>
-                  <TableCell>
+                  <TableCell className="hidden align-top lg:table-cell">
                     <span className={row.next_follow_up_due && row.next_follow_up_due < today ? "text-amber-600" : ""}>
                       {formatWhen(row.next_follow_up_due)}
                     </span>
                   </TableCell>
                   {ownerOptions.length > 0 ? (
-                    <TableCell className="hidden lg:table-cell">{row.deal_owner || "—"}</TableCell>
+                    <TableCell className="hidden align-top xl:table-cell">{row.deal_owner || "—"}</TableCell>
                   ) : null}
                 </TableRow>
               ))}
