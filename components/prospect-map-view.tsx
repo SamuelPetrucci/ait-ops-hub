@@ -10,7 +10,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { labelize } from "@/lib/format";
 import {
   FOLLOW_UP_CADENCE,
   formatVisitWindow,
@@ -21,12 +20,14 @@ import { reverseGeocodePin } from "@/app/actions/discover";
 import { geocodeMissingProspects } from "@/app/actions/geocode";
 import { saveRoute, deleteRoute, type SavedRoute } from "@/app/actions/routes";
 import { AreaDiscovery, type DiscoveryPin } from "@/components/area-discovery";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
 import type { DiscoveredBusiness } from "@/lib/discovery/overpass";
 import { buildGoogleMapsUrl, orderByNearestNeighbor, type RouteStop } from "@/lib/routes";
 import {
   crmSearchParams,
-  groupOptionsForStages,
+  filterStagesForScope,
   stageAllowed,
+  stageLabel,
   type CrmFilters,
   type ProspectScope,
 } from "@/lib/crm";
@@ -37,7 +38,6 @@ import {
   type RouteInfo,
   type UnmappedProspect,
 } from "@/lib/prospect-map";
-import { getProspectGroupLabel } from "@/lib/status-groups";
 
 const ProspectMapClient = dynamic(() => import("./prospect-map-client").then((m) => m.ProspectMapClient), {
   ssr: false,
@@ -98,10 +98,14 @@ export function ProspectMapView({
   const [filters, setFilters] = useState<ProspectMapFilters>(() => mapFiltersFromCrm(initialFilters));
   const [showRoutes, setShowRoutes] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
-  const stageGroups = useMemo(
-    () => groupOptionsForStages(mapped.map((p) => p.stage), filters.stageGroup),
-    [mapped, filters.stageGroup],
-  );
+  const pipelineStages = useMemo(() => filterStagesForScope(scope), [scope]);
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const row of mapped) {
+      counts.set(row.stage, (counts.get(row.stage) || 0) + 1);
+    }
+    return counts;
+  }, [mapped]);
 
   const syncFiltersToUrl = (next: ProspectMapFilters) => {
     if (!pathname.startsWith("/crm")) return;
@@ -419,17 +423,17 @@ export function ProspectMapView({
 
       <div className={`grid gap-3 sm:gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 ${showFilters ? "" : "hidden sm:grid"}`}>
         <div>
-          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Stage</label>
+          <label className="mb-1 block text-xs sm:text-sm text-muted-foreground">Pipeline stage</label>
           <select
-            value={filters.stageGroup}
-            onChange={(e) => handleFilterChange({ stageGroup: e.target.value, stage: "" })}
+            value={filters.stage}
+            onChange={(e) => handleFilterChange({ stage: e.target.value, stageGroup: "" })}
             className="h-8 sm:h-9 w-full rounded-lg border border-input bg-transparent px-2 text-xs sm:text-sm"
-            aria-label="Stage group"
+            aria-label="Pipeline stage"
           >
-            <option value="">All stages</option>
-            {stageGroups.map((group) => (
-              <option key={group} value={group}>
-                {getProspectGroupLabel(group)}
+            <option value="">All pipeline stages</option>
+            {pipelineStages.map((stage) => (
+              <option key={stage} value={stage}>
+                {stageLabel(stage)} ({stageCounts.get(stage) || 0})
               </option>
             ))}
           </select>
@@ -969,10 +973,10 @@ export function ProspectMapView({
                     </TableCell>
                     <TableCell className="hidden sm:table-cell">{p.industry || "—"}</TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">{labelize(p.stage)}</Badge>
+                      <Badge variant="outline" className="text-xs">{stageLabel(p.stage)}</Badge>
                     </TableCell>
-                    <TableCell className="text-right tabular-nums hidden sm:table-cell">
-                      {p.lead_score ?? "—"}
+                    <TableCell className="hidden sm:table-cell">
+                      <ProspectScoreSelect id={p.id} score={p.lead_score} compact />
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {p.miles_from_home?.toFixed(1) ?? "—"} mi

@@ -9,6 +9,7 @@ import {
   scheduleFollowUp,
 } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
 import { ProspectStageSelect } from "@/components/prospect-stage-select";
 import { SiteLink } from "@/components/site-link";
 import { Badge } from "@/components/ui/badge";
@@ -154,7 +155,10 @@ export default async function CompanyPage({
             <CardContent className="grid gap-2 text-sm sm:grid-cols-2">
               <Field label="Contact string" value={company.contact} />
               <Field label="Service" value={company.proposed_service} />
-              <Field label="Score" value={company.lead_score} />
+              <div>
+                <p className="text-muted-foreground">Opportunity score</p>
+                <ProspectScoreSelect id={id} score={company.lead_score} className="mt-1 max-w-xs" />
+              </div>
               <Field label="Owner" value={company.deal_owner} />
               <Field label="Opportunity" value={company.primary_opportunity} />
               <Field label="Angle" value={company.outreach_angle} />

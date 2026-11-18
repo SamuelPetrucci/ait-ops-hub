@@ -38,7 +38,7 @@ export function ProspectStageSelect({
         aria-busy={pending}
         onChange={(event) => onChange(event.target.value)}
         className={`rounded-lg border border-input bg-transparent text-sm disabled:opacity-60 ${
-          compact ? "h-7 max-w-[11rem] px-1.5" : "h-8 w-full min-w-[10rem] px-2"
+          compact ? "h-8 min-w-[8.5rem] max-w-[12rem] px-1.5" : "h-8 w-full min-w-[10rem] px-2"
         }`}
       >
         {PROSPECT_STAGE_OPTIONS.map(([value, label]) => (

@@ -62,9 +62,12 @@ export function companyOf(row: { prospects?: unknown }) {
 export function siteUrl(value: string | null | undefined) {
   const raw = (value || "").trim();
   if (!raw) return null;
+  // Never treat emails / mailto blobs as websites.
+  if (/^mailto:/i.test(raw) || raw.includes("@") && !/^https?:\/\//i.test(raw)) return null;
   try {
     const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
     if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    if (url.hostname.includes("@")) return null;
     return url.href;
   } catch {
     return null;

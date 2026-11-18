@@ -63,13 +63,49 @@ export const PROSPECT_TO_DEAL: Record<string, string> = {
   do_not_contact: "do_not_contact",
 };
 
-export const PROSPECT_STAGE_OPTIONS = PROSPECT_STAGES.map((stage) => [
-  stage,
-  stage
+export const PROSPECT_STAGE_LABELS: Record<(typeof PROSPECT_STAGES)[number], string> = {
+  researched: "Researched",
+  qualified: "Qualified",
+  draft: "Draft",
+  approved: "Approved",
+  sent: "Sent",
+  replied: "Replied",
+  meeting_booked: "Meeting booked",
+  audit_proposed: "Audit proposed",
+  audit_paid: "Audit paid",
+  implementation_proposed: "Implementation proposed",
+  won: "Won",
+  delivered: "Delivered",
+  lost: "Lost",
+  do_not_contact: "Do not contact",
+};
+
+export const PROSPECT_STAGE_OPTIONS = PROSPECT_STAGES.map(
+  (stage) => [stage, PROSPECT_STAGE_LABELS[stage]] as const,
+);
+
+export function stageLabel(stage: string | null | undefined) {
+  if (!stage) return "—";
+  if (stage in PROSPECT_STAGE_LABELS) {
+    return PROSPECT_STAGE_LABELS[stage as keyof typeof PROSPECT_STAGE_LABELS];
+  }
+  return stage
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" "),
-] as const);
+    .join(" ");
+}
+
+/** Manual opportunity scores for field / browse judgment. */
+export const OPPORTUNITY_SCORE_OPTIONS = [
+  ["", "Unscored"],
+  ["25", "25 · Cold"],
+  ["40", "40 · Low"],
+  ["50", "50 · Maybe"],
+  ["60", "60 · Solid"],
+  ["75", "75 · Opportunity"],
+  ["90", "90 · Strong"],
+  ["100", "100 · Must win"],
+] as const;
 
 export const TASK_COLUMNS = [
   ["not_started", "Not started"],

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { deleteView, saveView } from "@/app/actions/mutations";
 import { Flash } from "@/components/flash";
+import { ProspectScoreSelect } from "@/components/prospect-score-select";
 import { ProspectStageSelect } from "@/components/prospect-stage-select";
 import { SiteLink } from "@/components/site-link";
 import { Button } from "@/components/ui/button";
@@ -10,18 +11,14 @@ import { requireOwner } from "@/lib/auth";
 import {
   crmHref,
   crmSearchParams,
+  filterStagesForScope,
   parseCrmFilters,
+  stageLabel,
   stagesForScope,
   type ProspectScope,
 } from "@/lib/crm";
 import { formatWhen, nyToday } from "@/lib/format";
 import { applyProspectFilters } from "@/lib/prospects";
-import {
-  getProspectGroupFromStage,
-  getProspectGroupLabel,
-  PROSPECT_GROUP_ORDER,
-  type ProspectStageGroup,
-} from "@/lib/status-groups";
 
 const PAGE_SIZE = 40;
 
@@ -62,7 +59,8 @@ export async function ProspectDirectory({
   const today = nyToday();
   const base = "/crm";
   const clearHref = crmHref({ scope, view: "list" });
-  const allowedStages = stagesForScope(scope, filters.includeDnc === "1");
+  const openStages = stagesForScope(scope, filters.includeDnc === "1");
+  const pipelineStages = filterStagesForScope(scope);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Supabase builder typing blows up with chained filters
   let query: any = supabase
@@ -77,7 +75,7 @@ export async function ProspectDirectory({
 
   const from = (page - 1) * PAGE_SIZE;
 
-  const [{ data, error, count }, { data: views }, { data: facetRows }] = await Promise.all([
+  const [{ data, error, count }, { data: views }, { data: facetRows }, { data: stageFacetRows }] = await Promise.all([
     query.range(from, from + PAGE_SIZE - 1) as Promise<{
       data: ProspectRow[] | null;
       error: { message: string } | null;
@@ -87,19 +85,22 @@ export async function ProspectDirectory({
     supabase
       .from("prospects")
       .select("stage, industry, deal_owner, lead_score, next_follow_up_due")
-      .in("stage", allowedStages),
+      .in("stage", openStages),
+    supabase.from("prospects").select("stage").in("stage", pipelineStages),
   ]);
   if (error) throw new Error(error.message);
 
-  const groupCounts = new Map<ProspectStageGroup, number>();
+  const stageCounts = new Map<string, number>();
+  for (const row of stageFacetRows ?? []) {
+    stageCounts.set(row.stage, (stageCounts.get(row.stage) || 0) + 1);
+  }
+
   const industryCounts = new Map<string, number>();
   const ownerCounts = new Map<string, number>();
   let dueCount = 0;
   let overdueCount = 0;
   let scoredHot = 0;
   for (const row of facetRows ?? []) {
-    const group = getProspectGroupFromStage(row.stage);
-    groupCounts.set(group, (groupCounts.get(group) || 0) + 1);
     if (row.industry) industryCounts.set(row.industry, (industryCounts.get(row.industry) || 0) + 1);
     if (row.deal_owner) ownerCounts.set(row.deal_owner, (ownerCounts.get(row.deal_owner) || 0) + 1);
     if (row.next_follow_up_due) {
@@ -108,11 +109,6 @@ export async function ProspectDirectory({
     }
     if (Number(row.lead_score) >= 50) scoredHot += 1;
   }
-
-  const groupOptions = PROSPECT_GROUP_ORDER.filter(
-    (group) => (groupCounts.get(group) || 0) > 0 || filters.stageGroup === group,
-  );
-  const currentStageGroup = filters.stage ? getProspectGroupFromStage(filters.stage) : filters.stageGroup;
   const industryOptions = [...industryCounts.entries()]
     .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
     .map(([name]) => name);
@@ -146,29 +142,32 @@ export async function ProspectDirectory({
         <QuickChip href={clearHref} active={!hasFilters} label="All" count={facetRows?.length || 0} />
         <QuickChip
           href={chipHref({ followUp: "due", stage: "", stageGroup: "", score: "" })}
-          active={filters.followUp === "due"}
+          active={filters.followUp === "due" && !filters.stage}
           label="Needs follow-up"
           count={dueCount}
         />
         <QuickChip
           href={chipHref({ followUp: "overdue", stage: "", stageGroup: "", score: "" })}
-          active={filters.followUp === "overdue"}
+          active={filters.followUp === "overdue" && !filters.stage}
           label="Overdue"
           count={overdueCount}
         />
         <QuickChip
           href={chipHref({ score: "50", followUp: "", stage: "", stageGroup: "" })}
-          active={filters.score === "50"}
+          active={filters.score === "50" && !filters.stage}
           label="Score 50+"
           count={scoredHot}
         />
-        {groupOptions.map((group) => (
+      </div>
+
+      <div className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1" aria-label="Pipeline stages">
+        {pipelineStages.map((stage) => (
           <QuickChip
-            key={group}
-            href={chipHref({ stageGroup: group, stage: "", followUp: "", score: "" })}
-            active={currentStageGroup === group && !filters.stage}
-            label={getProspectGroupLabel(group)}
-            count={groupCounts.get(group) || 0}
+            key={stage}
+            href={chipHref({ stage, stageGroup: "", followUp: "", score: "" })}
+            active={filters.stage === stage}
+            label={stageLabel(stage)}
+            count={stageCounts.get(stage) || 0}
           />
         ))}
       </div>
@@ -222,15 +221,15 @@ export async function ProspectDirectory({
           className="col-span-2 sm:col-span-1"
         />
         <select
-          name="stageGroup"
-          defaultValue={filters.stageGroup || (filters.stage ? getProspectGroupFromStage(filters.stage) : "")}
-          aria-label="Stage group"
+          name="stage"
+          defaultValue={filters.stage}
+          aria-label="Pipeline stage"
           className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
         >
-          <option value="">All stages</option>
-          {groupOptions.map((group) => (
-            <option key={group} value={group}>
-              {getProspectGroupLabel(group)} ({groupCounts.get(group) || 0})
+          <option value="">All pipeline stages</option>
+          {pipelineStages.map((stage) => (
+            <option key={stage} value={stage}>
+              {stageLabel(stage)} ({stageCounts.get(stage) || 0})
             </option>
           ))}
         </select>
@@ -314,36 +313,44 @@ export async function ProspectDirectory({
             <TableHeader>
               <TableRow>
                 <TableHead>Company</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="hidden sm:table-cell">Site</TableHead>
                 <TableHead className="hidden md:table-cell">Niche</TableHead>
-                <TableHead>Stage</TableHead>
                 <TableHead className="hidden sm:table-cell">Score</TableHead>
-                <TableHead>Follow-up</TableHead>
-                {ownerOptions.length > 0 ? <TableHead className="hidden lg:table-cell">Owner</TableHead> : null}
+                <TableHead className="hidden lg:table-cell">Follow-up</TableHead>
+                {ownerOptions.length > 0 ? <TableHead className="hidden xl:table-cell">Owner</TableHead> : null}
               </TableRow>
             </TableHeader>
             <TableBody>
               {(data ?? []).map((row) => (
                 <TableRow key={row.id}>
-                  <TableCell className="min-w-[10rem]">
+                  <TableCell className="min-w-[9rem] max-w-[14rem]">
                     <Link href={`/companies/${row.id}`} className="font-medium hover:underline">
                       {row.company}
                     </Link>
-                    <SiteLink website={row.website} className="block w-fit text-xs text-primary hover:underline" />
-                    <p className="text-xs text-muted-foreground md:hidden">{row.industry || row.contact || row.proposed_service}</p>
-                    <p className="hidden text-xs text-muted-foreground md:block">{row.contact || row.proposed_service}</p>
+                    <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 sm:hidden">
+                      <SiteLink website={row.website} className="w-fit text-xs text-primary hover:underline" />
+                      {row.industry ? <span className="text-xs text-muted-foreground">{row.industry}</span> : null}
+                    </div>
                   </TableCell>
-                  <TableCell className="hidden md:table-cell">{row.industry || "—"}</TableCell>
-                  <TableCell>
+                  <TableCell className="align-top">
                     <ProspectStageSelect id={row.id} stage={row.stage} compact />
                   </TableCell>
-                  <TableCell className="hidden tabular-nums sm:table-cell">{row.lead_score ?? "—"}</TableCell>
-                  <TableCell>
+                  <TableCell className="hidden align-top sm:table-cell">
+                    <SiteLink website={row.website} className="text-sm text-primary hover:underline" />
+                    {!row.website ? <span className="text-sm text-muted-foreground">—</span> : null}
+                  </TableCell>
+                  <TableCell className="hidden align-top md:table-cell">{row.industry || "—"}</TableCell>
+                  <TableCell className="hidden align-top sm:table-cell">
+                    <ProspectScoreSelect id={row.id} score={row.lead_score} compact />
+                  </TableCell>
+                  <TableCell className="hidden align-top lg:table-cell">
                     <span className={row.next_follow_up_due && row.next_follow_up_due < today ? "text-amber-600" : ""}>
                       {formatWhen(row.next_follow_up_due)}
                     </span>
                   </TableCell>
                   {ownerOptions.length > 0 ? (
-                    <TableCell className="hidden lg:table-cell">{row.deal_owner || "—"}</TableCell>
+                    <TableCell className="hidden align-top xl:table-cell">{row.deal_owner || "—"}</TableCell>
                   ) : null}
                 </TableRow>
               ))}
