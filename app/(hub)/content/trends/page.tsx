@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ContentChrome } from "@/components/content-chrome";
 import { TrendCard } from "@/components/trend-card";
 import { TrendFilters } from "@/components/trend-filters";
 import { requireOwner } from "@/lib/auth";
@@ -44,32 +45,16 @@ export default async function TrendsPage({
   const niches = nicheChoices(cards.map((card) => card.niche || ""));
 
   return (
-    <div className="flex w-full flex-col gap-6 md:gap-8">
-      <div className="panel relative overflow-hidden rounded-3xl px-5 py-5 ring-1 ring-ink/10">
-        <div className="mesh" aria-hidden>
-          <span />
-          <span />
-        </div>
-        <div className="relative flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">
-              <Link href="/content" className="hover:text-ink">
-                Content
-              </Link>
-            </p>
-            <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Trends</h1>
-            <p className="mt-1 max-w-xl text-sm text-ink-soft">
-              {visible.length} {visible.length === 1 ? "trend" : "trends"}
-              {hiddenExpired > 0 ? ` · ${hiddenExpired} expired hidden` : ""}
-              . Newest detections first.
-            </p>
-          </div>
-          <Link href="/content" className="text-xs text-signal hover:underline">
-            Content desk
-          </Link>
-        </div>
-      </div>
-
+    <ContentChrome
+      active="trends"
+      title="Trends"
+      description={
+        <>
+          {visible.length} {visible.length === 1 ? "trend" : "trends"}
+          {hiddenExpired > 0 ? ` · ${hiddenExpired} expired hidden` : ""}. Newest detections first.
+        </>
+      }
+    >
       <TrendFilters
         key={`${filters.niche}|${filters.status}|${filters.minSources}|${filters.query}`}
         filters={filters}
@@ -99,6 +84,6 @@ export default async function TrendsPage({
           ))}
         </div>
       )}
-    </div>
+    </ContentChrome>
   );
 }
