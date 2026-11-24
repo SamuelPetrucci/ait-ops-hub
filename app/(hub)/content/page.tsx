@@ -137,6 +137,9 @@ export default async function ContentPage({
             <Link href="/content/trends" className="text-xs text-signal hover:underline">
               Trends
             </Link>
+            <Link href="/content/references" className="text-xs text-signal hover:underline">
+              References
+            </Link>
             <BufferRefresh configured={buffer.configured || bufferConfigured()} />
           </div>
         </div>
