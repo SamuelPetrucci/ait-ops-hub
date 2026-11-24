@@ -1,8 +1,18 @@
 import "server-only";
 import { bufferConfigured, bufferGraphQL, bufferOrgId } from "@/lib/buffer";
+import {
+  addNyDays,
+  formatNyLabel,
+  nyDateKey,
+  nyLocalInputToDueAt,
+  nySlotKey,
+  nyWallTimeToIso,
+  nyWeekday,
+} from "@/lib/ny-time";
 
-const TZ = "America/New_York";
 const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+export { nyLocalInputToDueAt };
 
 /** Known AI Transformation Buffer channels (overridable via env). */
 export const BUFFER_CHANNEL_DEFAULTS = {
@@ -176,94 +186,6 @@ function normalizeHhmm(value: string) {
   const min = Number(m[2]);
   if (h > 23 || min > 59) return null;
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
-}
-
-export function nyLocalInputToDueAt(localValue: string) {
-  const m = localValue.trim().match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
-  if (!m) throw new Error("Schedule time must be YYYY-MM-DDTHH:mm");
-  const dueAt = nyWallTimeToIso(m[1], m[2]);
-  if (!dueAt) throw new Error("Could not interpret schedule time in America/New_York");
-  if (Date.parse(dueAt) <= Date.now()) throw new Error("Schedule time must be in the future");
-  return dueAt;
-}
-
-function nyWallTimeToIso(dateKey: string, hhmm: string) {
-  const [y, mo, d] = dateKey.split("-").map(Number);
-  const [h, mi] = hhmm.split(":").map(Number);
-  // Find the UTC instant whose NY wall clock equals this date/time.
-  let guess = Date.UTC(y, mo - 1, d, h + 5, mi, 0); // EST first guess
-  for (let i = 0; i < 4; i++) {
-    const parts = nyParts(new Date(guess));
-    const asNy = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, 0);
-    const wanted = Date.UTC(y, mo - 1, d, h, mi, 0);
-    const delta = wanted - asNy;
-    guess += delta;
-    if (delta === 0) break;
-  }
-  const check = nyParts(new Date(guess));
-  if (check.year !== y || check.month !== mo || check.day !== d || check.hour !== h || check.minute !== mi) {
-    return null;
-  }
-  return new Date(guess).toISOString().replace(/\.\d{3}Z$/, "Z");
-}
-
-function nyParts(date: Date) {
-  const fmt = new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  });
-  const bag: Record<string, string> = {};
-  for (const part of fmt.formatToParts(date)) {
-    if (part.type !== "literal") bag[part.type] = part.value;
-  }
-  return {
-    year: Number(bag.year),
-    month: Number(bag.month),
-    day: Number(bag.day),
-    hour: Number(bag.hour),
-    minute: Number(bag.minute),
-  };
-}
-
-function nyDateKey(date: Date) {
-  const p = nyParts(date);
-  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}`;
-}
-
-function nyWeekday(date: Date) {
-  // 0=Sun ... in America/New_York
-  const weekday = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" }).format(date);
-  const map: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
-  return map[weekday] ?? 0;
-}
-
-function addNyDays(from: Date, days: number) {
-  const p = nyParts(from);
-  const utc = Date.UTC(p.year, p.month - 1, p.day + days, 12, 0, 0);
-  return new Date(utc);
-}
-
-function nySlotKey(iso: string) {
-  const ms = Date.parse(iso);
-  if (!Number.isFinite(ms)) return "";
-  const p = nyParts(new Date(ms));
-  return `${p.year}-${String(p.month).padStart(2, "0")}-${String(p.day).padStart(2, "0")}T${String(p.hour).padStart(2, "0")}:${String(p.minute).padStart(2, "0")}`;
-}
-
-function formatNyLabel(iso: string) {
-  return new Intl.DateTimeFormat("en-US", {
-    timeZone: TZ,
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(iso));
 }
 
 export type CreateBufferPostInput = {

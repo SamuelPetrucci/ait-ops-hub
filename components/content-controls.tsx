@@ -1,7 +1,7 @@
 "use client";
 
 import { useTransition, useState } from "react";
-import { moveContent, reviewContent, scheduleToBuffer } from "@/app/actions/mutations";
+import { getNextFreeSlot, moveContent, reviewContent, scheduleToBuffer } from "@/app/actions/mutations";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { isNyLocalInFuture, nyLocalInputToDueAt } from "@/lib/ny-time";
 import {
   CONTENT_STATUS_GROUPS,
   CONTENT_GROUP_ORDER,
@@ -20,6 +21,8 @@ import {
   getCanonicalStatus,
   type ContentStatusGroup,
 } from "@/lib/status-groups";
+
+const INSTAGRAM_CAPTION_MAX = 2200;
 
 export function ContentStatusSelect({
   id,
@@ -93,6 +96,7 @@ export function ScheduleInBuffer({
   const [isPending, startTransition] = useTransition();
   const [isOpen, setIsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [slotLabel, setSlotLabel] = useState(suggestedTime);
   const [scheduledAt, setScheduledAt] = useState(suggestedTime);
   const [selectedChannels, setSelectedChannels] = useState<string[]>([
     "youtube_viral_digests",
@@ -111,6 +115,22 @@ export function ScheduleInBuffer({
     );
   }
 
+  function openForm() {
+    setError(null);
+    setIsOpen(true);
+    startTransition(async () => {
+      try {
+        const next = await getNextFreeSlot();
+        setSlotLabel(next);
+        setScheduledAt(next);
+      } catch {
+        if (!isNyLocalInFuture(scheduledAt)) {
+          setError("Suggested slot is in the past. Pick a later Eastern Time.");
+        }
+      }
+    });
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!videoUrl) {
@@ -119,6 +139,18 @@ export function ScheduleInBuffer({
     }
     if (!description.trim()) {
       setError("Add a description/caption before scheduling");
+      return;
+    }
+    if (selectedChannels.includes("instagram") && description.trim().length > INSTAGRAM_CAPTION_MAX) {
+      setError(
+        `Instagram captions cannot exceed ${INSTAGRAM_CAPTION_MAX} characters. Shorten the description or deselect Instagram.`,
+      );
+      return;
+    }
+    try {
+      nyLocalInputToDueAt(scheduledAt);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Schedule time must be in the future");
       return;
     }
     setError(null);
@@ -132,7 +164,11 @@ export function ScheduleInBuffer({
         formData.set("caption", description.trim());
         formData.set("youtube_title", youtubeTitle.trim());
         for (const ch of selectedChannels) formData.append("channels", ch);
-        await scheduleToBuffer(formData);
+        const result = await scheduleToBuffer(formData);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
         setIsOpen(false);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to schedule");
@@ -145,15 +181,18 @@ export function ScheduleInBuffer({
       <Button
         variant="outline"
         size="sm"
-        onClick={() => setIsOpen(true)}
+        onClick={openForm}
         disabled={!videoUrl}
         className="gap-1.5"
-        title={videoUrl ? `Suggested: ${suggestedTime}` : "Needs a public video URL"}
+        title={videoUrl ? `Suggested: ${slotLabel}` : "Needs a public video URL"}
       >
-        Schedule · {suggestedTime.replace("T", " ")}
+        Schedule · {slotLabel.replace("T", " ")}
       </Button>
     );
   }
+
+  const captionTooLongForIg =
+    selectedChannels.includes("instagram") && description.trim().length > INSTAGRAM_CAPTION_MAX;
 
   return (
     <div className="rounded-xl bg-card/80 p-4 ring-1 ring-foreground/10">
@@ -162,7 +201,7 @@ export function ScheduleInBuffer({
           <div>
             <h3 className="text-sm font-medium">Schedule in Buffer</h3>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Suggested slot from your Buffer posting schedule (America/New_York).
+              Suggested slot from your Buffer posting schedule (Eastern Time).
             </p>
           </div>
           <button
@@ -205,7 +244,14 @@ export function ScheduleInBuffer({
               placeholder="What viewers read under the video"
               required
             />
-            <p className="mt-1 text-[11px] text-muted-foreground">{description.trim().length} characters</p>
+            <p
+              className={`mt-1 text-[11px] ${captionTooLongForIg ? "text-destructive" : "text-muted-foreground"}`}
+            >
+              {description.trim().length} characters
+              {selectedChannels.includes("instagram")
+                ? ` · Instagram max ${INSTAGRAM_CAPTION_MAX}`
+                : ""}
+            </p>
           </div>
 
           <div>
@@ -253,7 +299,11 @@ export function ScheduleInBuffer({
           ) : null}
         </div>
 
-        <Button type="submit" disabled={isPending || selectedChannels.length === 0 || !description.trim()} className="w-full">
+        <Button
+          type="submit"
+          disabled={isPending || selectedChannels.length === 0 || !description.trim() || captionTooLongForIg}
+          className="w-full"
+        >
           {isPending ? "Scheduling…" : "Schedule with description"}
         </Button>
       </form>

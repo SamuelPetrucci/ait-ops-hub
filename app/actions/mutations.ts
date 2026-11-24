@@ -466,7 +466,14 @@ export async function moveContent(id: string, status: string) {
   refresh(["/content", "/approvals"]);
 }
 
-export async function scheduleToBuffer(formData: FormData) {
+export type ScheduleToBufferResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Schedule a clip to Buffer. Returns a result object instead of throwing so
+ * production clients see the real message (thrown Server Action errors become
+ * minified React #441 digests).
+ */
+export async function scheduleToBuffer(formData: FormData): Promise<ScheduleToBufferResult> {
   const { supabase } = await requireOwner();
   const id = text(formData, "id");
   const scheduledAt = text(formData, "scheduled_at");
@@ -475,118 +482,143 @@ export async function scheduleToBuffer(formData: FormData) {
   const youtubeTitle = text(formData, "youtube_title");
   const channels = formData.getAll("channels").map(String);
 
-  if (!id) throw new Error("Content ID is required");
-  if (!scheduledAt) throw new Error("Schedule time is required");
-  if (channels.length === 0) throw new Error("Select at least one channel");
+  if (!id) return { ok: false, error: "Content ID is required" };
+  if (!scheduledAt) return { ok: false, error: "Schedule time is required" };
+  if (channels.length === 0) return { ok: false, error: "Select at least one channel" };
 
-  const {
-    buildPostDescription,
-    bufferPublishToken,
-    createBufferScheduledPost,
-    nyLocalInputToDueAt,
-    resolveChannelIds,
-    truncateYoutubeTitle,
-  } = await import("@/lib/buffer-publish");
-  const { resolveVideoUrl, scriptParts } = await import("@/lib/content");
+  try {
+    const {
+      buildPostDescription,
+      bufferPublishToken,
+      createBufferScheduledPost,
+      nyLocalInputToDueAt,
+      resolveChannelIds,
+      truncateYoutubeTitle,
+    } = await import("@/lib/buffer-publish");
+    const { resolveVideoUrl, scriptParts } = await import("@/lib/content");
 
-  if (!bufferPublishToken()) {
-    throw new Error("BUFFER_API_KEY is not configured on the server");
-  }
-
-  const resolved = resolveChannelIds(channels);
-  if (resolved.length === 0) {
-    throw new Error("No valid Buffer channel IDs configured for selected channels");
-  }
-
-  const { data: row, error: rowError } = await supabase
-    .from("content_queue")
-    .select("id, content_id, title, caption, script_json, video_url, storage_path")
-    .eq("id", id)
-    .maybeSingle();
-  if (rowError || !row) throw new Error(rowError?.message || "Content not found");
-
-  const permanentUrl =
-    row.video_url?.startsWith("http://") || row.video_url?.startsWith("https://")
-      ? row.video_url
-      : null;
-  const resolvedUrl = permanentUrl || (await resolveVideoUrl(row)) || clientVideoUrl || null;
-  if (!resolvedUrl) throw new Error("No public video URL available for this content");
-  if (!/^https?:\/\//i.test(resolvedUrl)) throw new Error("Video must be a public https URL");
-
-  const script = scriptParts(row.script_json, caption || row.caption);
-  const description = buildPostDescription({
-    caption: caption || script.caption,
-    hook: script.hook,
-    cta: script.cta,
-    title: row.title,
-    contentId: row.content_id,
-  });
-  if (!description.trim()) {
-    throw new Error("Add a caption/description before scheduling — posts cannot go out blank.");
-  }
-
-  const dueAt = nyLocalInputToDueAt(scheduledAt);
-  const ytTitle = truncateYoutubeTitle(youtubeTitle || script.hook || row.title || row.content_id || "Viral Digest");
-  const errors: string[] = [];
-  const successes: string[] = [];
-
-  for (const channel of resolved) {
-    try {
-      await createBufferScheduledPost({
-        channelId: channel.id,
-        channelKey: channel.key,
-        text: description,
-        videoUrl: resolvedUrl,
-        dueAt,
-        youtubeTitle: ytTitle,
-      });
-      successes.push(channel.key);
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : "Unknown error";
-      errors.push(`${channel.key}: ${msg}`);
-      if (msg.includes("10-post limit")) throw new Error(msg);
+    if (!bufferPublishToken()) {
+      return { ok: false, error: "BUFFER_API_KEY is not configured on the server" };
     }
-  }
 
-  if (successes.length === 0) {
-    throw new Error(`Failed to schedule: ${errors.join("; ")}`);
-  }
+    const resolved = resolveChannelIds(channels);
+    if (resolved.length === 0) {
+      return { ok: false, error: "No valid Buffer channel IDs configured for selected channels" };
+    }
 
-  const { error: updateError } = await supabase
-    .from("content_queue")
-    .update({
-      status: "scheduled",
-      scheduled_at: dueAt,
-      caption: description,
-      ...(errors.length
-        ? {
-            review_notes: `Buffer partial: ok=${successes.join(",")} fail=${errors.join(" | ")}`,
-          }
-        : {}),
-    })
-    .eq("id", id);
+    const { data: row, error: rowError } = await supabase
+      .from("content_queue")
+      .select("id, content_id, title, caption, script_json, video_url, storage_path")
+      .eq("id", id)
+      .maybeSingle();
+    if (rowError || !row) return { ok: false, error: rowError?.message || "Content not found" };
 
-  if (updateError) throw new Error(updateError.message);
+    const permanentUrl =
+      row.video_url?.startsWith("http://") || row.video_url?.startsWith("https://")
+        ? row.video_url
+        : null;
+    const resolvedUrl = permanentUrl || (await resolveVideoUrl(row)) || clientVideoUrl || null;
+    if (!resolvedUrl) return { ok: false, error: "No public video URL available for this content" };
+    if (!/^https?:\/\//i.test(resolvedUrl)) {
+      return { ok: false, error: "Video must be a public https URL" };
+    }
 
-  await logActivity(supabase, {
-    entityType: "content",
-    entityId: id,
-    action: "scheduled_to_buffer",
-    details: {
-      scheduled_at: dueAt,
-      channels: successes,
-      description_chars: description.length,
-      youtube_title: ytTitle,
-      errors: errors.length > 0 ? errors : undefined,
-    },
-  });
+    const script = scriptParts(row.script_json, caption || row.caption);
+    const description = buildPostDescription({
+      caption: caption || script.caption,
+      hook: script.hook,
+      cta: script.cta,
+      title: row.title,
+      contentId: row.content_id,
+    });
+    if (!description.trim()) {
+      return {
+        ok: false,
+        error: "Add a caption/description before scheduling — posts cannot go out blank.",
+      };
+    }
+    if (channels.includes("instagram") && description.trim().length > 2200) {
+      return {
+        ok: false,
+        error: "Instagram captions cannot exceed 2200 characters. Shorten the description or deselect Instagram.",
+      };
+    }
 
-  refresh(["/content", "/approvals", "/"]);
-
-  if (errors.length > 0) {
-    throw new Error(
-      `Scheduled on ${successes.join(", ")} but failed on ${errors.join("; ")}. Re-run only the failed channels in Buffer if needed.`,
+    const dueAt = nyLocalInputToDueAt(scheduledAt);
+    const ytTitle = truncateYoutubeTitle(
+      youtubeTitle || script.hook || row.title || row.content_id || "Viral Digest",
     );
+    const errors: string[] = [];
+    const successes: string[] = [];
+
+    for (const channel of resolved) {
+      try {
+        await createBufferScheduledPost({
+          channelId: channel.id,
+          channelKey: channel.key,
+          text: description,
+          videoUrl: resolvedUrl,
+          dueAt,
+          youtubeTitle: ytTitle,
+        });
+        successes.push(channel.key);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : "Unknown error";
+        errors.push(`${channel.key}: ${msg}`);
+        if (msg.includes("10-post limit")) {
+          return { ok: false, error: msg };
+        }
+      }
+    }
+
+    if (successes.length === 0) {
+      return { ok: false, error: `Failed to schedule: ${errors.join("; ")}` };
+    }
+
+    const { error: updateError } = await supabase
+      .from("content_queue")
+      .update({
+        status: "scheduled",
+        scheduled_at: dueAt,
+        caption: description,
+        ...(errors.length
+          ? {
+              review_notes: `Buffer partial: ok=${successes.join(",")} fail=${errors.join(" | ")}`,
+            }
+          : {}),
+      })
+      .eq("id", id);
+
+    if (updateError) return { ok: false, error: updateError.message };
+
+    await logActivity(supabase, {
+      entityType: "content",
+      entityId: id,
+      action: "scheduled_to_buffer",
+      details: {
+        scheduled_at: dueAt,
+        channels: successes,
+        description_chars: description.length,
+        youtube_title: ytTitle,
+        errors: errors.length > 0 ? errors : undefined,
+      },
+    });
+
+    refresh(["/content", "/approvals", "/"]);
+
+    if (errors.length > 0) {
+      return {
+        ok: false,
+        error: `Scheduled on ${successes.join(", ")} but failed on ${errors.join("; ")}. Re-run only the failed channels in Buffer if needed.`,
+      };
+    }
+
+    return { ok: true };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Failed to schedule",
+    };
   }
 }
 
