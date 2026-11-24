@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
+import { ContentChrome } from "@/components/content-chrome";
 import { NicheFilterSelect } from "@/components/content-filters";
 import { ContentPiece } from "@/components/content-piece";
 import { PostCalendar } from "@/components/post-calendar";
@@ -117,31 +118,18 @@ export default async function ContentPage({
   }));
 
   return (
-    <div className="flex w-full flex-col gap-6 md:gap-8">
-      <div className="panel relative overflow-hidden rounded-3xl px-5 py-5 ring-1 ring-ink/10">
-        <div className="mesh" aria-hidden>
-          <span />
-          <span />
-        </div>
-        <div className="relative flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Library</p>
-            <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Content</h1>
-            <p className="mt-1 text-sm text-ink-soft">
-              Approve, schedule, then watch the Buffer calendar
-              {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
-              {buffer.syncedAt ? ` · synced ${formatWhen(buffer.syncedAt)}` : ""}.
-            </p>
-          </div>
-          <div className="flex items-center gap-3">
-            <Link href="/content/trends" className="text-xs text-signal hover:underline">
-              Trends
-            </Link>
-            <BufferRefresh configured={buffer.configured || bufferConfigured()} />
-          </div>
-        </div>
-      </div>
-
+    <ContentChrome
+      active="desk"
+      title="Content desk"
+      description={
+        <>
+          Approve, schedule, then watch the Buffer calendar
+          {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
+          {buffer.syncedAt ? ` · synced ${formatWhen(buffer.syncedAt)}` : ""}.
+        </>
+      }
+      actions={<BufferRefresh configured={buffer.configured || bufferConfigured()} />}
+    >
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Views" value={String(buffer.views || 0)} />
         <Stat label="Reactions" value={String(buffer.reactions || 0)} />
@@ -270,7 +258,7 @@ export default async function ContentPage({
           </Table>
         )}
       </section>
-    </div>
+    </ContentChrome>
   );
 }
 

@@ -160,7 +160,10 @@ export const NAV: readonly NavLink[] = [
   {
     href: "/content",
     label: "Content",
-    children: [{ href: "/content/trends", label: "Trends" }],
+    children: [
+      { href: "/content/trends", label: "Trends" },
+      { href: "/content/references", label: "References" },
+    ],
   },
   { href: "/approvals", label: "Approvals" },
   { href: "/sms", label: "SMS Inbox" },
