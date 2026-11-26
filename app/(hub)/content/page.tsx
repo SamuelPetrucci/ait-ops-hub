@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { NicheFilterSelect } from "@/components/content-filters";
-import { ContentPiece } from "@/components/content-piece";
+import { ContentDesk, type DeskItem } from "@/components/content-desk";
 import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
 import {
@@ -11,8 +11,8 @@ import {
   readBufferTotals,
   syncContentPostedFromBuffer,
 } from "@/lib/buffer";
-import { byContentRecency, liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
-import { formatWhen, nestedString, nyToday } from "@/lib/format";
+import { byContentRecency, ideaSources, resolveVideoUrl, rollUpViews, scriptParts } from "@/lib/content";
+import { channelLabel, formatCount, formatNyDate, formatNyTime, formatWhen, nestedString, nyToday } from "@/lib/format";
 import {
   CONTENT_GROUP_ORDER,
   CONTENT_STATUS_GROUPS,
@@ -46,7 +46,7 @@ export default async function ContentPage({
     supabase
       .from("content_queue")
       .select(
-        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, updated_at, created_at, content_pillar",
+        "id, content_id, title, status, platforms, scheduled_at, posted_at, assigned_agent, script_json, caption, video_url, storage_path, notion_page_url, platform_links, review_notes, source_urls, updated_at, created_at, content_pillar",
       )
       .order("updated_at", { ascending: false }),
     supabase
@@ -54,10 +54,9 @@ export default async function ContentPage({
       .select(
         "id, platform, post_age, views, comments, shares, reach, saves, notes, measurement_date, classification, content_id, content_queue(title)",
       )
-      .ilike("notes", '%"buffer_post_id"%')
       .order("measurement_date", { ascending: false })
       .order("views", { ascending: false })
-      .limit(100),
+      .limit(500),
     readBufferTotals(),
     getNextFreeSlot(),
     fetchBufferCalendarPosts(month).catch(() => []),
@@ -65,6 +64,7 @@ export default async function ContentPage({
   if (queue.error) throw new Error(queue.error.message);
   if (performance.error) throw new Error(performance.error.message);
 
+  const viewRollup = rollUpViews(performance.data ?? []);
   const rawRows = [...(queue.data ?? [])].sort(byContentRecency);
   const groupCounts = new Map<ContentStatusGroup, number>();
   const nicheCounts = new Map<string, number>();
@@ -92,16 +92,6 @@ export default async function ContentPage({
     if (niche && row.content_pillar !== niche) return false;
     return true;
   });
-  const reading =
-    group || niche
-      ? visible
-      : visible
-          .filter((row) => {
-            const bucket = getContentGroupFromStatus(row.status);
-            return bucket === "needs_review" || bucket === "approved" || bucket === "in_progress";
-          })
-          .sort((a, b) => actionRank(a.status) - actionRank(b.status));
-
   const needsAttentionCount = rows.filter((row) => {
     const bucket = getContentGroupFromStatus(row.status);
     return bucket === "needs_review" || bucket === "approved" || bucket === "in_progress";
@@ -112,6 +102,39 @@ export default async function ContentPage({
       .filter((row) => row.content_id)
       .map((row) => [String(row.content_id).toUpperCase(), row.id] as const),
   );
+  const resultRows = [...viewRollup.entries()]
+    .map(([id, views]) => {
+      const piece = rows.find((row) => row.id === id);
+      const perf = (performance.data ?? []).find((row) => row.content_id === id);
+      const ideas = piece ? ideaSources(piece.source_urls, piece.script_json) : [];
+      const channels = views.channels.length
+        ? views.channels.map((channel) => ({
+            label: channelLabel(channel.channel),
+            views: channel.views,
+          }))
+        : (piece?.platforms || []).map((platform: string) => ({
+            label: channelLabel(platform),
+            views: 0,
+          }));
+      return {
+        id,
+        title: piece?.title || nestedString(perf?.content_queue, "title") || "Untitled",
+        code: piece?.content_id ?? null,
+        postedAt: piece?.posted_at ?? null,
+        scheduledAt: piece?.scheduled_at ?? null,
+        channels,
+        views,
+        idea: ideas[0] ?? null,
+      };
+    })
+    .sort((a, b) => b.views.total - a.views.total);
+
+  const deskPool = (group ? visible : rows).filter((row) => !niche || row.content_pillar === niche);
+  const deskItems = deskPool
+    .map((row) => toDeskItem(row, suggestedTime, viewRollup.get(row.id) ?? null))
+    .filter((item): item is DeskItem => Boolean(item));
+  const deskLanes = buildDeskLanes(deskItems, { group, month, niche, preview: group ? deskItems.length : 8 });
+
   const calendarItems = bufferCalendar.map((item) => ({
     id: item.id,
     content_id: item.content_id,
@@ -130,17 +153,25 @@ export default async function ContentPage({
           <span />
           <span />
         </div>
-        <div className="relative flex flex-wrap items-end justify-between gap-3">
+          <div className="relative flex flex-wrap items-end justify-between gap-3">
           <div>
-            <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Library</p>
+            <p className="text-[11px] tracking-[0.16em] text-ink-soft uppercase">Desk</p>
             <h1 className="mt-1 font-display text-3xl font-semibold tracking-tight text-ink">Content</h1>
             <p className="mt-1 text-sm text-ink-soft">
-              Approve, schedule, then watch the Buffer calendar
-              {needsSchedule ? ` · ${needsSchedule} ready to schedule` : ""}
+              Review what is waiting, what Grok can post, and what is already scheduled
+              {needsSchedule ? ` · ${needsSchedule} cleared and not scheduled` : ""}
               {buffer.syncedAt ? ` · synced ${formatWhen(buffer.syncedAt)}` : ""}.
             </p>
           </div>
-          <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              href="/references"
+              className="inline-flex h-9 items-center rounded-full bg-ink/5 px-3.5 text-sm text-ink ring-1 ring-ink/10 hover:bg-ink/10"
+            >
+              References
+            </Link>
+            <BufferRefresh configured={buffer.configured || bufferConfigured()} />
+          </div>
         </div>
       </div>
 
@@ -172,6 +203,8 @@ export default async function ContentPage({
         ) : null}
       </div>
 
+      {group === "posted" ? null : <ContentDesk lanes={deskLanes} />}
+
       <PostCalendar
         items={calendarItems}
         month={month}
@@ -184,86 +217,77 @@ export default async function ContentPage({
         }}
       />
 
-      <section className="flex flex-col gap-3">
-        <div className="flex items-end justify-between gap-3">
-          <h2 className="font-display text-sm font-semibold text-ink">
-            {group ? CONTENT_STATUS_GROUPS[group].label : "Needs attention"}
-          </h2>
-          {!group ? (
-            <Link href="/approvals" className="text-xs text-signal hover:underline">
-              Open approvals
-            </Link>
-          ) : null}
-        </div>
-        {reading.length === 0 ? <p className="text-sm text-ink-soft">Nothing in this view.</p> : null}
-        <div className="flex flex-col gap-3">
-          {(group || niche ? reading : reading.slice(0, 8)).map((row) => {
-            const script = scriptParts(row.script_json, row.caption);
-            return (
-              <ContentPiece
-                key={row.id}
-                id={row.id}
-                code={row.content_id}
-                title={row.title || "Untitled"}
-                status={row.status}
-                hook={script.hook || script.fullScript}
-                caption={script.caption}
-                platforms={row.platforms}
-                agent={row.assigned_agent}
-                videoUrl={row.resolvedVideoUrl}
-                notionUrl={row.notion_page_url}
-                links={liveLinks(row.platform_links, row.review_notes)}
-                scheduledAt={row.scheduled_at}
-                suggestedTime={suggestedTime}
-                niche={row.content_pillar}
-              />
-            );
-          })}
-        </div>
-      </section>
-
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-medium">Post stats</h2>
-        {(performance.data ?? []).length === 0 ? (
+        <div>
+          <h2 className="text-sm font-medium">Results</h2>
+          <p className="text-xs text-muted-foreground">
+            Channel, when it went up, views, and the idea link for pieces with a view check.
+          </p>
+        </div>
+        {resultRows.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No matched Buffer rows yet. Totals above still come from the org snapshot.
+            No view checks yet. Totals above still come from the org snapshot.
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Content</TableHead>
-                <TableHead>Platform</TableHead>
-                <TableHead>Age</TableHead>
+                <TableHead>Channels</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Time</TableHead>
                 <TableHead>Views</TableHead>
-                <TableHead>Reactions</TableHead>
-                <TableHead>Comments</TableHead>
-                <TableHead>Eng %</TableHead>
+                <TableHead>Idea</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(performance.data ?? []).map((row) => {
-                const title = nestedString(row.content_queue, "title");
-                const extra = parseNotes(row.notes);
-                const href = row.content_id ? `/content/${row.content_id}` : null;
+              {resultRows.map((row) => {
+                const when = row.postedAt || row.scheduledAt;
                 return (
                   <TableRow key={row.id}>
                     <TableCell>
-                      {href ? (
-                        <Link href={href} className="hover:underline">
-                          {title || extra.code || "Untitled"}
-                        </Link>
+                      <Link href={`/content/${row.id}`} className="hover:underline">
+                        {row.title}
+                      </Link>
+                      {row.code ? (
+                        <span className="mt-0.5 block text-[11px] text-muted-foreground">{row.code}</span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      {row.channels.length ? (
+                        <span className="flex flex-col gap-0.5">
+                          {row.channels.map((channel: { label: string; views: number }, index: number) => (
+                            <span key={`${channel.label}-${index}`} className="text-sm">
+                              {channel.label}
+                              <span className="tabular-nums text-muted-foreground">
+                                {" "}
+                                {formatCount(channel.views)}
+                              </span>
+                            </span>
+                          ))}
+                        </span>
                       ) : (
-                        extra.code || title || "Untitled"
+                        "—"
                       )}
                     </TableCell>
-                    <TableCell className="capitalize">{row.platform}</TableCell>
-                    <TableCell>{row.post_age ?? "—"}</TableCell>
-                    <TableCell className="tabular-nums">{row.views ?? "—"}</TableCell>
-                    <TableCell className="tabular-nums">{extra.reactions ?? "—"}</TableCell>
-                    <TableCell className="tabular-nums">{row.comments ?? "—"}</TableCell>
+                    <TableCell>{formatNyDate(when)}</TableCell>
+                    <TableCell className="tabular-nums">{formatNyTime(when)}</TableCell>
                     <TableCell className="tabular-nums">
-                      {extra.engagement_rate_pct == null ? "—" : `${extra.engagement_rate_pct}%`}
+                      {formatCount(row.views.total)}
+                      {row.views.up != null ? (
+                        <span className="mt-0.5 block text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                          ↑ {formatCount(row.views.up)}
+                        </span>
+                      ) : null}
+                    </TableCell>
+                    <TableCell>
+                      {row.idea ? (
+                        <a href={row.idea.href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                          {row.idea.label}
+                        </a>
+                      ) : (
+                        "—"
+                      )}
                     </TableCell>
                   </TableRow>
                 );
@@ -276,12 +300,90 @@ export default async function ContentPage({
   );
 }
 
-function actionRank(status: string) {
-  if (status === "in_review") return 0;
-  if (status === "approved") return 1;
-  if (status === "changes_requested") return 2;
-  if (status === "scripting" || status === "rendering") return 3;
-  return 4;
+function deskLane(row: { status: string; scheduled_at: string | null }): DeskItem["lane"] | null {
+  if (row.status === "posted" || row.status === "skipped" || row.status === "rejected") return null;
+  if (row.status === "scheduled" || (row.status === "approved" && row.scheduled_at)) return "out";
+  if (row.status === "approved") return "cleared";
+  if (row.status === "idea" || row.status === "scripting" || row.status === "rendering") return "agent";
+  return "before";
+}
+
+function toDeskItem(
+  row: {
+    id: string;
+    content_id: string | null;
+    title: string | null;
+    status: string;
+    platforms: string[] | null;
+    scheduled_at: string | null;
+    posted_at: string | null;
+    assigned_agent: string | null;
+    script_json: unknown;
+    caption: string | null;
+    content_pillar: string | null;
+    source_urls: unknown;
+    resolvedVideoUrl: string | null;
+  },
+  suggestedTime: string,
+  views: DeskItem["views"],
+): DeskItem | null {
+  const lane = deskLane(row);
+  if (!lane) return null;
+  const script = scriptParts(row.script_json, row.caption);
+  return {
+    id: row.id,
+    code: row.content_id,
+    title: row.title || "Untitled",
+    status: row.status,
+    hook: script.hook,
+    caption: script.caption,
+    platforms: row.platforms || [],
+    agent: row.assigned_agent,
+    videoUrl: row.resolvedVideoUrl,
+    scheduledAt: row.scheduled_at,
+    postedAt: row.posted_at,
+    niche: row.content_pillar,
+    ideas: ideaSources(row.source_urls, row.script_json),
+    views,
+    suggestedTime,
+    lane,
+  };
+}
+
+function buildDeskLanes(
+  items: DeskItem[],
+  query: { group: string; month: string; niche: string; preview: number },
+) {
+  const order: DeskItem["lane"][] = ["before", "cleared", "out", "agent"];
+  const rank: Record<string, number> = {
+    in_review: 0,
+    changes_requested: 1,
+    scripting: 2,
+    rendering: 3,
+    idea: 4,
+  };
+  return order
+    .map((kind) => {
+      const all = items
+        .filter((item) => item.lane === kind)
+        .sort((a, b) => {
+          if (kind === "out") return String(a.scheduledAt || "").localeCompare(String(b.scheduledAt || ""));
+          return (rank[a.status] ?? 9) - (rank[b.status] ?? 9);
+        });
+      const shown = query.group ? all : all.slice(0, query.preview);
+      const moreGroup =
+        kind === "before" ? "needs_review" : kind === "agent" ? "in_progress" : kind === "cleared" ? "approved" : "scheduled";
+      return {
+        kind,
+        items: shown,
+        total: all.length,
+        moreHref:
+          !query.group && all.length > shown.length
+            ? buildContentUrl({ group: moreGroup, month: query.month, niche: query.niche })
+            : undefined,
+      };
+    })
+    .filter((lane) => (query.group ? lane.total > 0 : true));
 }
 
 function buildContentUrl({
@@ -335,13 +437,3 @@ function Stat({ label, value }: { label: string; value: string }) {
   );
 }
 
-function parseNotes(value: unknown) {
-  if (typeof value !== "string" || !value) {
-    return {} as { code?: string; reactions?: number; engagement_rate_pct?: number };
-  }
-  try {
-    return JSON.parse(value) as { code?: string; reactions?: number; engagement_rate_pct?: number };
-  } catch {
-    return {};
-  }
-}

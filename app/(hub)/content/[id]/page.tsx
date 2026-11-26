@@ -3,8 +3,8 @@ import { notFound } from "next/navigation";
 import { getNextFreeSlot } from "@/app/actions/mutations";
 import { ContentStatusSelect, ScheduleInBuffer } from "@/components/content-controls";
 import { requireOwner } from "@/lib/auth";
-import { liveLinks, resolveVideoUrl, scriptParts } from "@/lib/content";
-import { formatWhen } from "@/lib/format";
+import { ideaSources, liveLinks, resolveVideoUrl, rollUpViews, scriptParts } from "@/lib/content";
+import { channelLabel, formatCount, formatNyDate, formatNyTime, formatWhen } from "@/lib/format";
 
 export const metadata = { title: "Viewer" };
 
@@ -25,15 +25,22 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
   const script = scriptParts(data.script_json, data.caption);
   const posts = liveLinks(data.platform_links, data.review_notes);
   const platforms = (data.platforms || []) as string[];
-  const sources = ((data.source_urls || []) as string[]).filter(Boolean);
+  const sources = ideaSources(data.source_urls, data.script_json);
   const readable = readableScript(script.fullScript);
-  const [videoUrl, suggestedTime] = await Promise.all([
+  const [videoUrl, suggestedTime, performance] = await Promise.all([
     resolveVideoUrl({
       video_url: data.video_url,
       storage_path: data.storage_path,
     }),
     getNextFreeSlot(),
+    supabase
+      .from("content_performance")
+      .select("content_id, platform, views, measurement_date")
+      .eq("content_id", data.id),
   ]);
+  if (performance.error) throw new Error(performance.error.message);
+  const views = rollUpViews(performance.data ?? []).get(data.id) ?? null;
+  const goesUpAt = data.posted_at || data.scheduled_at;
 
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
@@ -113,9 +120,19 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
           ) : null}
 
           <dl className="grid grid-cols-2 gap-3 rounded-2xl bg-card px-4 py-3 text-sm ring-1 ring-foreground/10">
+            <Fact label="Channels" value={platforms.map(channelLabel).join(", ") || "—"} />
+            <Fact label="Goes up" value={goesUpAt ? `${formatNyDate(goesUpAt)} · ${formatNyTime(goesUpAt)}` : "Not scheduled"} />
+            <Fact
+              label="Views"
+              value={
+                views
+                  ? views.up != null
+                    ? `${formatCount(views.total)} · up ${formatCount(views.up)}`
+                    : formatCount(views.total)
+                  : "—"
+              }
+            />
             <Fact label="Status" value={data.status.replace(/_/g, " ")} />
-            <Fact label="Scheduled" value={formatWhen(data.scheduled_at)} />
-            <Fact label="Posted" value={formatWhen(data.posted_at)} />
             <Fact label="Approved by" value={data.approved_by || "—"} />
             <Fact label="Reviewed" value={formatWhen(data.reviewed_at)} />
           </dl>
@@ -134,12 +151,12 @@ export default async function ContentDetailPage({ params }: { params: Promise<{ 
 
       {sources.length > 0 ? (
         <section className="flex flex-col gap-2">
-          <h2 className="text-sm font-medium">Sources</h2>
+          <h2 className="text-sm font-medium">Idea from</h2>
           <ul className="flex flex-col gap-1 text-sm">
             {sources.map((source) => (
-              <li key={source}>
-                <a href={source} target="_blank" rel="noreferrer" className="break-all text-primary hover:underline">
-                  {source}
+              <li key={source.href}>
+                <a href={source.href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
+                  {source.label}
                 </a>
               </li>
             ))}

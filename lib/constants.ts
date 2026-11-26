@@ -92,6 +92,7 @@ export const NAV = [
   { href: "/clients", label: "Clients" },
   { href: "/prospect-map", label: "Sales Map" },
   { href: "/content", label: "Content" },
+  { href: "/references", label: "References" },
   { href: "/approvals", label: "Approvals" },
   { href: "/sms", label: "SMS Inbox" },
 ] as const;

@@ -1,8 +1,9 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { ContentStatusSelect, ScheduleInBuffer } from "@/components/content-controls";
 import { Badge } from "@/components/ui/badge";
-import type { LiveLink } from "@/lib/content";
-import { formatWhen } from "@/lib/format";
+import type { ContentViewRollup, LiveLink } from "@/lib/content";
+import { channelLabel, formatCount, formatNyDate, formatNyTime } from "@/lib/format";
 
 export function ContentPiece({
   id,
@@ -17,8 +18,11 @@ export function ContentPiece({
   notionUrl,
   links,
   scheduledAt,
+  postedAt,
   suggestedTime,
   niche,
+  views,
+  ideas,
   compact = false,
 }: {
   id: string;
@@ -33,11 +37,17 @@ export function ContentPiece({
   notionUrl?: string | null;
   links?: LiveLink[];
   scheduledAt?: string | null;
+  postedAt?: string | null;
   suggestedTime?: string;
   niche?: string | null;
+  views?: ContentViewRollup | null;
+  ideas?: LiveLink[];
   compact?: boolean;
 }) {
-  const context = [code, agent, (platforms || []).slice(0, 3).join(", ")].filter(Boolean).join(" · ");
+  const channels = (platforms || []).map((platform) => channelLabel(platform));
+  const context = [code, agent].filter(Boolean).join(" · ");
+  const goesUpAt = postedAt || scheduledAt;
+  const goesUpLabel = postedAt ? "Posted" : scheduledAt ? "Scheduled" : "Not scheduled";
 
   if (compact) {
     return (
@@ -55,11 +65,15 @@ export function ContentPiece({
           <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
             {hook || "Open to read the script."}
           </p>
-          {scheduledAt ? (
-            <p className="mt-1 text-[10px] text-sky-300/90">
-              {formatWhen(scheduledAt)}
-            </p>
-          ) : null}
+          <p className="mt-1 text-[10px] text-sky-300/90">
+            {[
+              channels.slice(0, 3).join(", "),
+              goesUpAt ? `${goesUpLabel} ${formatNyDate(goesUpAt)} ${formatNyTime(goesUpAt)}` : null,
+              views?.total != null ? `${formatCount(views.total)} views` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || "No channel or time yet"}
+          </p>
         </div>
       </div>
     );
@@ -88,13 +102,98 @@ export function ContentPiece({
               <Link href={`/content/${id}`} className="mt-0.5 block text-base font-medium hover:underline">
                 {title}
               </Link>
-              {scheduledAt ? (
-                <p className="mt-0.5 text-xs text-sky-300/90">
-                  Scheduled: {formatWhen(scheduledAt)}
-                </p>
-              ) : null}
             </div>
             <ContentStatusSelect id={id} currentStatus={status} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <Fact label="Channels">
+              {channels.length ? (
+                <span className="flex flex-wrap gap-1.5">
+                  {channels.map((channel, index) => {
+                    const live = (links || []).find((link) =>
+                      link.label.toLowerCase().includes(channel.toLowerCase()),
+                    );
+                    const count = views?.channels.find(
+                      (item) => channelLabel(item.channel).toLowerCase() === channel.toLowerCase(),
+                    );
+                    const pill = (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-1 text-xs font-medium text-foreground">
+                        {channel}
+                        {count ? (
+                          <span className="tabular-nums text-muted-foreground">{formatCount(count.views)}</span>
+                        ) : null}
+                      </span>
+                    );
+                    return live ? (
+                      <a key={`${channel}-${index}`} href={live.href} target="_blank" rel="noreferrer" className="hover:opacity-80">
+                        {pill}
+                      </a>
+                    ) : (
+                      <span key={`${channel}-${index}`}>{pill}</span>
+                    );
+                  })}
+                </span>
+              ) : (
+                <Empty>No channel yet</Empty>
+              )}
+            </Fact>
+            <Fact label="Goes up">
+              {goesUpAt ? (
+                <span>
+                  <span className="block text-sm font-medium text-foreground">{formatNyDate(goesUpAt)}</span>
+                  <span className="mt-0.5 block text-xs tabular-nums text-muted-foreground">
+                    {formatNyTime(goesUpAt)}
+                  </span>
+                  <span className="mt-0.5 block text-[10px] font-medium tracking-[0.12em] text-muted-foreground uppercase">
+                    {goesUpLabel}
+                  </span>
+                </span>
+              ) : (
+                <Empty>Not scheduled</Empty>
+              )}
+            </Fact>
+            <Fact label="Views">
+              {views ? (
+                <span>
+                  <span className="block text-sm font-medium tabular-nums text-foreground">
+                    {formatCount(views.total)}
+                  </span>
+                  {views.up != null ? (
+                    <span className="mt-0.5 block text-xs font-medium tabular-nums text-emerald-700 dark:text-emerald-300">
+                      ↑ {formatCount(views.up)} since last check
+                    </span>
+                  ) : (
+                    <span className="mt-0.5 block text-[10px] tracking-[0.12em] text-muted-foreground uppercase">
+                      Latest check
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <Empty>No views yet</Empty>
+              )}
+            </Fact>
+            <Fact label="Idea from">
+              {(ideas || []).length ? (
+                <span className="flex flex-col gap-1">
+                  {(ideas || []).slice(0, 2).map((idea) => (
+                    <a
+                      key={idea.href}
+                      href={idea.href}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="truncate text-sm font-medium text-primary hover:underline"
+                    >
+                      {idea.label}
+                    </a>
+                  ))}
+                  {(ideas || []).length > 2 ? (
+                    <span className="text-[11px] text-muted-foreground">+{(ideas || []).length - 2} more</span>
+                  ) : null}
+                </span>
+              ) : (
+                <Empty>No source linked</Empty>
+              )}
+            </Fact>
           </div>
           <p className="line-clamp-3 text-sm leading-relaxed text-muted-foreground">
             {hook || "No script is stored on this row yet."}
@@ -138,6 +237,19 @@ export function ContentPiece({
       </div>
     </article>
   );
+}
+
+function Fact({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <p className="text-[10px] font-medium tracking-[0.14em] text-muted-foreground uppercase">{label}</p>
+      <div className="mt-1.5">{children}</div>
+    </div>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <span className="text-sm text-muted-foreground">{children}</span>;
 }
 
 function VideoThumb({ src, className }: { src?: string | null; className?: string }) {

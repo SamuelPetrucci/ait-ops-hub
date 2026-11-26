@@ -165,6 +165,164 @@ function isSocialUrl(href: string) {
   }
 }
 
+const IDEA_KEYS = [
+  "source_url",
+  "source_urls",
+  "source",
+  "sources",
+  "idea",
+  "idea_url",
+  "reference",
+  "reference_url",
+  "references",
+  "inspiration",
+  "inspired_by",
+];
+
+/** URLs the piece was built from: content_queue.source_urls, then explicit script fields. */
+export function ideaSources(sourceUrls: unknown, scriptJson: unknown): LiveLink[] {
+  const found = new Map<string, string>();
+  collectIdea(sourceUrls, found);
+  const script =
+    scriptJson && typeof scriptJson === "object" ? (scriptJson as Record<string, unknown>) : {};
+  for (const key of IDEA_KEYS) {
+    if (key in script) collectIdea(script[key], found);
+  }
+  return [...found.entries()].map(([href, label]) => ({ href, label }));
+}
+
+function collectIdea(value: unknown, found: Map<string, string>, title?: string) {
+  if (typeof value === "string") {
+    const matches = value.match(URL_RE) || [];
+    const candidates = matches.length ? matches : [value];
+    for (const raw of candidates) {
+      const href = raw.replace(/[.,]+$/, "");
+      let url: URL;
+      try {
+        url = new URL(href);
+      } catch {
+        continue;
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
+      if (!found.has(url.href)) found.set(url.href, title?.trim() || ideaLabel(url));
+    }
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectIdea(entry, found);
+    return;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const named =
+      typeof record.title === "string"
+        ? record.title
+        : typeof record.name === "string"
+          ? record.name
+          : title;
+    const link = record.url ?? record.href ?? record.link;
+    if (typeof link === "string") {
+      collectIdea(link, found, named);
+      return;
+    }
+    for (const child of Object.values(record)) collectIdea(child, found, named);
+  }
+}
+
+function ideaLabel(url: URL) {
+  const host = url.hostname.replace(/^www\./, "");
+  if (host === "youtu.be" || host.endsWith("youtube.com")) {
+    const id =
+      url.searchParams.get("v") ||
+      (host === "youtu.be" ? url.pathname.split("/").filter(Boolean)[0] : "") ||
+      url.pathname.split("/").filter(Boolean).pop() ||
+      "";
+    return id && id !== "watch" ? `YouTube · ${id}` : "YouTube";
+  }
+  if (host.endsWith("tiktok.com")) return "TikTok";
+  if (host.endsWith("instagram.com")) return "Instagram";
+  const last = url.pathname.split("/").filter(Boolean).pop();
+  if (!last) return host;
+  const short = last.length > 28 ? `${last.slice(0, 25)}…` : last;
+  return `${host} · ${short}`;
+}
+
+export type ChannelViews = { channel: string; views: number };
+
+export type ContentViewRollup = {
+  total: number;
+  /** Views gained since the previous measurement, when the latest total is higher. */
+  up: number | null;
+  channels: ChannelViews[];
+};
+
+/** Latest views per channel. `up` is set only when the newest check beat the one before it. */
+export function rollUpViews(
+  rows: {
+    content_id?: string | null;
+    platform?: string | null;
+    views?: number | null;
+    measurement_date?: string | null;
+  }[],
+): Map<string, ContentViewRollup> {
+  const cell = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.content_id || row.views == null) continue;
+    const views = Number(row.views);
+    if (!Number.isFinite(views)) continue;
+    const key = `${row.content_id}|${row.platform || "unknown"}|${row.measurement_date || ""}`;
+    const prev = cell.get(key);
+    if (prev == null || views > prev) cell.set(key, views);
+  }
+
+  const grouped = new Map<string, Map<string, Map<string, number>>>();
+  for (const [key, views] of cell) {
+    const [id, platform, date] = key.split("|");
+    const byPlatform = grouped.get(id) ?? new Map<string, Map<string, number>>();
+    const byDate = byPlatform.get(platform) ?? new Map<string, number>();
+    byDate.set(date, views);
+    byPlatform.set(platform, byDate);
+    grouped.set(id, byPlatform);
+  }
+
+  const result = new Map<string, ContentViewRollup>();
+  for (const [id, byPlatform] of grouped) {
+    const dates = new Set<string>();
+    for (const byDate of byPlatform.values()) {
+      for (const date of byDate.keys()) dates.add(date);
+    }
+    const ordered = [...dates].sort();
+    const latest = ordered[ordered.length - 1] ?? "";
+    const previous = ordered.length > 1 ? ordered[ordered.length - 2] : null;
+    const sumOn = (date: string) => {
+      let total = 0;
+      for (const byDate of byPlatform.values()) total += byDate.get(date) ?? 0;
+      return total;
+    };
+    const total = sumOn(latest);
+    const prior = previous == null ? null : sumOn(previous);
+    const platformsOn = (date: string) =>
+      [...byPlatform.keys()].filter((platform) => byPlatform.get(platform)?.has(date));
+    const latestPlatforms = platformsOn(latest);
+    const priorPlatforms = previous ? platformsOn(previous) : [];
+    const comparable =
+      prior != null &&
+      latestPlatforms.length > 0 &&
+      latestPlatforms.length === priorPlatforms.length &&
+      latestPlatforms.every((platform) => priorPlatforms.includes(platform));
+    const channels = [...byPlatform.entries()]
+      .filter(([, byDate]) => byDate.has(latest))
+      .map(([channel, byDate]) => ({ channel, views: byDate.get(latest) ?? 0 }))
+      .sort((a, b) => b.views - a.views);
+    result.set(id, {
+      total,
+      up: comparable && prior != null && total > prior ? total - prior : null,
+      channels,
+    });
+  }
+  return result;
+}
+
 function labelFor(key: string, href: string) {
   const blob = `${key} ${href}`.toLowerCase();
   if (blob.includes("instagram")) return "Instagram";

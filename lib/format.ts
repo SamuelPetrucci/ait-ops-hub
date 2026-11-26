@@ -43,6 +43,54 @@ export function formatWhen(value: string | null | undefined) {
   }).format(date);
 }
 
+function nyDate(value: string) {
+  const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(value);
+  return dateOnly ? new Date(`${value}T12:00:00Z`) : new Date(value);
+}
+
+export function formatNyDate(value: string | null | undefined) {
+  if (!value) return "—";
+  const date = nyDate(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    timeZone: "America/New_York",
+  }).format(date);
+}
+
+export function formatNyTime(value: string | null | undefined) {
+  if (!value || /^\d{4}-\d{2}-\d{2}$/.test(value)) return "—";
+  const date = nyDate(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return new Intl.DateTimeFormat("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    timeZone: "America/New_York",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+export function formatCount(value: number | null | undefined) {
+  if (value == null || Number.isNaN(value)) return "—";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
+}
+
+export function channelLabel(value: string | null | undefined) {
+  const raw = (value || "").trim();
+  if (!raw) return "Channel";
+  const key = raw.toLowerCase();
+  if (key.includes("instagram")) return "Instagram";
+  if (key.includes("youtube") || key.includes("youtu")) return "YouTube";
+  if (key.includes("tiktok")) return "TikTok";
+  if (key.includes("linkedin")) return "LinkedIn";
+  if (key.includes("facebook") || key.includes("fb.")) return "Facebook";
+  if (key === "x" || key.includes("twitter")) return "X";
+  if (key.includes("threads")) return "Threads";
+  return raw.replaceAll("_", " ");
+}
+
 export function labelize(value: string | null | undefined) {
   if (!value) return "—";
   return value.replaceAll("_", " ");

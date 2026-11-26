@@ -367,6 +367,94 @@ export async function reviewContent(formData: FormData) {
   refresh(["/approvals", "/content", "/"]);
 }
 
+/** Rewrite the copy Grok will use. Hold pulls an approved or scheduled row back to review. */
+export async function adjustContent(formData: FormData) {
+  const { supabase } = await requireOwner();
+  const id = text(formData, "id");
+  const title = text(formData, "title");
+  const hook = text(formData, "hook");
+  const caption = text(formData, "caption");
+  const hold = formData.get("hold") === "1";
+  if (!id) throw new Error("Content ID is required");
+
+  const { data: row, error: readError } = await supabase
+    .from("content_queue")
+    .select("id, title, script_json, status")
+    .eq("id", id)
+    .maybeSingle();
+  if (readError || !row) throw new Error(readError?.message || "Content not found");
+
+  const script =
+    row.script_json && typeof row.script_json === "object" && !Array.isArray(row.script_json)
+      ? { ...(row.script_json as Record<string, unknown>) }
+      : {};
+  script.hook = hook;
+  script.caption_draft = caption;
+
+  const patch: Record<string, unknown> = {
+    title: title || row.title,
+    caption: caption || null,
+    script_json: script,
+  };
+
+  if (hold) {
+    const cancel = await cancelContentInBuffer(id);
+    patch.status = "changes_requested";
+    patch.scheduled_at = null;
+    patch.approved_by = "Samuel";
+    patch.reviewed_at = new Date().toISOString();
+    patch.review_notes = [
+      "Held on the content desk. Grok should not post until this is approved again.",
+      cancel.deleted.length ? `Canceled in Buffer (${cancel.deleted.length})` : null,
+      cancel.errors.length ? `Buffer cancel errors: ${cancel.errors.join(" | ")}` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  }
+
+  const { error } = await supabase.from("content_queue").update(patch).eq("id", id);
+  if (error) throw new Error(error.message);
+  await logActivity(supabase, {
+    entityType: "content",
+    entityId: id,
+    action: hold ? "content_held" : "content_adjusted",
+    details: { title: title || row.title, status: hold ? "changes_requested" : row.status },
+  });
+  refresh(["/content", "/approvals", "/"]);
+}
+
+/** Pull a row off the post path without rewriting the script. */
+export async function holdContent(id: string) {
+  const { supabase } = await requireOwner();
+  if (!id) throw new Error("Content ID is required");
+  const cancel = await cancelContentInBuffer(id);
+  const reviewNotes = [
+    "Held on the content desk. Grok should not post until this is approved again.",
+    cancel.deleted.length ? `Canceled in Buffer (${cancel.deleted.length})` : null,
+    cancel.errors.length ? `Buffer cancel errors: ${cancel.errors.join(" | ")}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  const { error } = await supabase
+    .from("content_queue")
+    .update({
+      status: "changes_requested",
+      scheduled_at: null,
+      approved_by: "Samuel",
+      reviewed_at: new Date().toISOString(),
+      review_notes: reviewNotes,
+    })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  await logActivity(supabase, {
+    entityType: "content",
+    entityId: id,
+    action: "content_held",
+    details: { status: "changes_requested" },
+  });
+  refresh(["/content", "/approvals", "/"]);
+}
+
 export async function moveContent(id: string, status: string) {
   const { supabase } = await requireOwner();
   const patch: {
