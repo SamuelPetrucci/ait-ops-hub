@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getNextFreeSlot } from "@/app/actions/mutations";
 import { BufferRefresh } from "@/components/buffer-refresh";
 import { NicheFilterSelect } from "@/components/content-filters";
-import { ContentDesk, type DeskItem } from "@/components/content-desk";
+import { ContentDesk, DayPosts, type DeskItem } from "@/components/content-desk";
 import { PostCalendar } from "@/components/post-calendar";
 import { requireOwner } from "@/lib/auth";
 import {
@@ -12,7 +12,7 @@ import {
   syncContentPostedFromBuffer,
 } from "@/lib/buffer";
 import { byContentRecency, ideaSources, resolveVideoUrl, rollUpViews, scriptParts } from "@/lib/content";
-import { channelLabel, formatCount, formatNyDate, formatNyTime, formatWhen, nestedString, nyToday } from "@/lib/format";
+import { channelKey, channelLabel, formatCount, formatNyDate, formatNyTime, formatWhen, nestedString, nyDateKey, nyToday } from "@/lib/format";
 import {
   CONTENT_GROUP_ORDER,
   CONTENT_STATUS_GROUPS,
@@ -30,7 +30,7 @@ const FILTER_GROUPS = CONTENT_GROUP_ORDER.filter(
 export default async function ContentPage({
   searchParams,
 }: {
-  searchParams: Promise<{ group?: string; month?: string; niche?: string }>;
+  searchParams: Promise<{ group?: string; month?: string; niche?: string; day?: string; channel?: string }>;
 }) {
   const params = await searchParams;
   const group = (FILTER_GROUPS as string[]).includes(params.group || "")
@@ -39,6 +39,8 @@ export default async function ContentPage({
   const month =
     params.month && /^\d{4}-\d{2}$/.test(params.month) ? params.month : nyToday().slice(0, 7);
   const niche = params.niche || "";
+  const day = params.day && /^\d{4}-\d{2}-\d{2}$/.test(params.day) ? params.day : "";
+  const channel = params.channel || "";
   const { supabase } = await requireOwner();
   // Pull Buffer "sent" into content_queue as posted before we render the desk.
   await syncContentPostedFromBuffer().catch(() => ({ markedPosted: 0 }));
@@ -128,12 +130,17 @@ export default async function ContentPage({
       };
     })
     .sort((a, b) => b.views.total - a.views.total);
+  const shownResults = resultRows.filter((row) => {
+    if (day && nyDateKey(row.postedAt || row.scheduledAt) !== day) return false;
+    if (channel && !row.channels.some((entry: { label: string }) => channelKey(entry.label) === channel)) return false;
+    return true;
+  });
 
   const deskPool = (group ? visible : rows).filter((row) => !niche || row.content_pillar === niche);
   const deskItems = deskPool
     .map((row) => toDeskItem(row, suggestedTime, viewRollup.get(row.id) ?? null))
     .filter((item): item is DeskItem => Boolean(item));
-  const deskLanes = buildDeskLanes(deskItems, { group, month, niche, preview: group ? deskItems.length : 8 });
+  const deskLanes = buildDeskLanes(deskItems, { group, month, niche, day, channel, preview: group ? deskItems.length : 8 });
 
   const calendarItems = bufferCalendar.map((item) => ({
     id: item.id,
@@ -143,8 +150,26 @@ export default async function ContentPage({
     platforms: item.platforms,
     scheduled_at: item.scheduled_at,
     posted_at: item.posted_at,
-    content_queue_id: item.content_id ? byCode.get(item.content_id.toUpperCase()) || null : null,
+    content_queue_id: queueIdForCode(byCode, item.content_id),
   }));
+  const dayItems = day
+    ? rows
+        .filter((row) => !niche || row.content_pillar === niche)
+        .filter((row) => !group || getContentGroupFromStatus(row.status) === group)
+        .map((row) => {
+          const item = toDeskItem(row, suggestedTime, viewRollup.get(row.id) ?? null, true);
+          if (!item || nyDateKey(item.postedAt || item.scheduledAt) !== day) return null;
+          const postedOn = channelsForDay(calendarItems, row.id, row.content_id, day);
+          return { ...item, platforms: postedOn.length ? postedOn : item.platforms };
+        })
+        .filter((item): item is DeskItem => Boolean(item))
+        .sort((a, b) => String(a.postedAt || a.scheduledAt).localeCompare(String(b.postedAt || b.scheduledAt)))
+    : [];
+  const dayChannels = channelChoices(dayItems, { group, month, niche, day });
+  const dayChannel = dayChannels.some((entry) => entry.key === channel) ? channel : "";
+  const visibleDayItems = dayChannel
+    ? dayItems.filter((item) => item.platforms.some((platform) => channelKey(platform) === dayChannel))
+    : dayItems;
 
   return (
     <div className="flex w-full flex-col gap-6 md:gap-8">
@@ -184,7 +209,7 @@ export default async function ContentPage({
 
       <div className="flex flex-wrap items-center gap-2">
         <Filter
-          href={buildContentUrl({ month, niche })}
+          href={buildContentUrl({ month, niche, day, channel })}
           active={!group}
           label="Needs attention"
           count={needsAttentionCount}
@@ -192,30 +217,49 @@ export default async function ContentPage({
         {FILTER_GROUPS.map((id) => (
           <Filter
             key={id}
-            href={buildContentUrl({ group: id, month, niche })}
+            href={buildContentUrl({ group: id, month, niche, day, channel })}
             active={group === id}
             label={CONTENT_STATUS_GROUPS[id].label}
             count={groupCounts.get(id) || 0}
           />
         ))}
         {nicheOptions.length > 0 ? (
-          <NicheFilterSelect month={month} group={group} niche={niche} options={nicheOptions} />
+          <NicheFilterSelect
+            month={month}
+            group={group}
+            niche={niche}
+            day={day}
+            channel={channel}
+            options={nicheOptions}
+          />
         ) : null}
       </div>
-
-      {group === "posted" ? null : <ContentDesk lanes={deskLanes} />}
 
       <PostCalendar
         items={calendarItems}
         month={month}
+        selectedDay={day}
         source="buffer"
         configured={buffer.configured || bufferConfigured()}
         query={{
           ...(group ? { group } : {}),
           month,
           ...(niche ? { niche } : {}),
+          ...(day ? { day } : {}),
+          ...(channel ? { channel } : {}),
         }}
       />
+
+      {day ? (
+        <DayPosts
+          dayLabel={formatNyDate(day)}
+          channels={dayChannels}
+          activeChannel={dayChannel}
+          items={visibleDayItems}
+        />
+      ) : group === "posted" ? null : (
+        <ContentDesk lanes={deskLanes} />
+      )}
 
       <section className="flex flex-col gap-2">
         <div>
@@ -224,7 +268,7 @@ export default async function ContentPage({
             Channel, when it went up, views, and the idea link for pieces with a view check.
           </p>
         </div>
-        {resultRows.length === 0 ? (
+        {shownResults.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             No view checks yet. Totals above still come from the org snapshot.
           </p>
@@ -241,7 +285,7 @@ export default async function ContentPage({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {resultRows.map((row) => {
+              {shownResults.map((row) => {
                 const when = row.postedAt || row.scheduledAt;
                 return (
                   <TableRow key={row.id}>
@@ -326,8 +370,9 @@ function toDeskItem(
   },
   suggestedTime: string,
   views: DeskItem["views"],
+  includeLive = false,
 ): DeskItem | null {
-  const lane = deskLane(row);
+  const lane = deskLane(row) || (includeLive && row.status === "posted" ? "live" : null);
   if (!lane) return null;
   const script = scriptParts(row.script_json, row.caption);
   return {
@@ -352,9 +397,9 @@ function toDeskItem(
 
 function buildDeskLanes(
   items: DeskItem[],
-  query: { group: string; month: string; niche: string; preview: number },
+  query: { group: string; month: string; niche: string; day: string; channel: string; preview: number },
 ) {
-  const order: DeskItem["lane"][] = ["before", "cleared", "out", "agent"];
+  const order = ["before", "cleared", "out", "agent"] as const;
   const rank: Record<string, number> = {
     in_review: 0,
     changes_requested: 1,
@@ -379,25 +424,109 @@ function buildDeskLanes(
         total: all.length,
         moreHref:
           !query.group && all.length > shown.length
-            ? buildContentUrl({ group: moreGroup, month: query.month, niche: query.niche })
+            ? buildContentUrl({
+                group: moreGroup,
+                month: query.month,
+                niche: query.niche,
+                day: query.day,
+                channel: query.channel,
+              })
             : undefined,
       };
     })
     .filter((lane) => (query.group ? lane.total > 0 : true));
 }
 
+function queueIdForCode(byCode: Map<string, string>, code: string | null) {
+  if (!code) return null;
+  const exact = byCode.get(code.toUpperCase());
+  if (exact) return exact;
+  const prefix = `${code.toUpperCase()}_`;
+  const hits = [...byCode.entries()].filter(([id]) => id.startsWith(prefix));
+  return hits.length === 1 ? hits[0][1] : null;
+}
+
+function codesMatch(bufferCode: string | null | undefined, queueCode: string | null) {
+  if (!bufferCode || !queueCode) return false;
+  const buffer = bufferCode.toUpperCase();
+  const queue = queueCode.toUpperCase();
+  return queue === buffer || queue.startsWith(`${buffer}_`) || queue.startsWith(`${buffer}-`);
+}
+
+function channelsForDay(
+  items: { content_id?: string | null; content_queue_id?: string | null; platforms?: string[] | null; scheduled_at?: string | null; posted_at?: string | null }[],
+  queueId: string,
+  code: string | null,
+  day: string,
+) {
+  const names = new Set<string>();
+  for (const item of items) {
+    const when = nyDateKey(item.posted_at || item.scheduled_at);
+    if (when !== day) continue;
+    const sameQueue = item.content_queue_id === queueId;
+    const sameCode = codesMatch(item.content_id, code);
+    if (!sameQueue && !sameCode) continue;
+    for (const platform of item.platforms || []) names.add(platform);
+  }
+  return [...names];
+}
+
+function channelChoices(
+  items: DeskItem[],
+  query: { group: string; month: string; niche: string; day: string },
+) {
+  const order = ["youtube", "instagram", "tiktok", "facebook", "linkedin", "x", "threads"];
+  const counts = new Map<string, { label: string; count: number }>();
+  for (const item of items) {
+    const seen = new Set<string>();
+    for (const platform of item.platforms) {
+      const key = channelKey(platform);
+      if (!key || key === "channel" || seen.has(key)) continue;
+      seen.add(key);
+      const current = counts.get(key) || { label: channelLabel(platform), count: 0 };
+      current.count += 1;
+      counts.set(key, current);
+    }
+  }
+  const keys = [...counts.keys()].sort((a, b) => {
+    const ai = order.indexOf(a);
+    const bi = order.indexOf(b);
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi) || a.localeCompare(b);
+  });
+  return [
+    {
+      key: "all",
+      label: "All channels",
+      count: items.length,
+      href: buildContentUrl({ ...query, channel: "" }),
+    },
+    ...keys.map((key) => ({
+      key,
+      label: counts.get(key)?.label || key,
+      count: counts.get(key)?.count || 0,
+      href: buildContentUrl({ ...query, channel: key }),
+    })),
+  ];
+}
+
 function buildContentUrl({
   group,
   month,
   niche,
+  day,
+  channel,
 }: {
   group?: string;
   month?: string;
   niche?: string;
+  day?: string;
+  channel?: string;
 }) {
   const params = new URLSearchParams();
   if (group) params.set("group", group);
   if (month) params.set("month", month);
+  if (day) params.set("day", day);
+  if (channel) params.set("channel", channel);
   if (niche) params.set("niche", niche);
   const query = params.toString();
   return query ? `/content?${query}` : "/content";

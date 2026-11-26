@@ -6,11 +6,15 @@ export function NicheFilterSelect({
   month,
   group,
   niche,
+  day,
+  channel,
   options,
 }: {
   month: string;
   group: string;
   niche: string;
+  day?: string;
+  channel?: string;
   options: string[];
 }) {
   const router = useRouter();
@@ -19,6 +23,8 @@ export function NicheFilterSelect({
     const params = new URLSearchParams();
     if (group) params.set("group", group);
     if (month) params.set("month", month);
+    if (day) params.set("day", day);
+    if (channel) params.set("channel", channel);
     if (nextNiche) params.set("niche", nextNiche);
     const query = params.toString();
     router.push(query ? `/content?${query}` : "/content");

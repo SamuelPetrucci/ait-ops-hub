@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import type { ContentViewRollup, LiveLink } from "@/lib/content";
-import { channelLabel, formatCount, formatNyDate, formatNyTime } from "@/lib/format";
+import { channelKey, channelLabel, formatCount, formatNyDate, formatNyTime } from "@/lib/format";
 
 export type DeskItem = {
   id: string;
@@ -26,7 +26,7 @@ export type DeskItem = {
   ideas: LiveLink[];
   views: ContentViewRollup | null;
   suggestedTime: string;
-  lane: "agent" | "before" | "cleared" | "out";
+  lane: "agent" | "before" | "cleared" | "out" | "live";
 };
 
 const LANE_COPY = {
@@ -47,6 +47,58 @@ const LANE_COPY = {
     detail: "Scheduled. Hold cancels the Buffer slot and returns the row to review.",
   },
 } as const;
+
+export function DayPosts({
+  dayLabel,
+  channels,
+  activeChannel,
+  items,
+}: {
+  dayLabel: string;
+  channels: { key: string; label: string; count: number; href: string }[];
+  activeChannel: string;
+  items: DeskItem[];
+}) {
+  return (
+    <section className="flex flex-col gap-3">
+      <div>
+        <h2 className="font-display text-sm font-semibold text-ink">{dayLabel}</h2>
+        <p className="mt-0.5 text-xs text-ink-soft">
+          {activeChannel
+            ? "This channel on the selected day."
+            : "Pick a channel to narrow this day."}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {channels.map((channel) => {
+          const active = channel.key === activeChannel || (channel.key === "all" && !activeChannel);
+          return (
+            <Link
+              key={channel.key}
+              href={channel.href}
+              className={`rounded-full px-3 py-1.5 text-xs ring-1 ${
+                active ? "bg-ink text-paper ring-ink" : "bg-white/50 text-ink-soft ring-ink/10 hover:text-ink"
+              }`}
+            >
+              {channel.label} <span className="tabular-nums">{channel.count}</span>
+            </Link>
+          );
+        })}
+      </div>
+      {items.length === 0 ? (
+        <p className="rounded-2xl bg-white/40 px-4 py-3 text-sm text-ink-soft ring-1 ring-ink/10">
+          Nothing on this day{activeChannel ? " for that channel" : ""}.
+        </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {items.map((item) => (
+            <DeskRow key={item.id} item={item} focusChannel={activeChannel} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
 
 export function ContentDesk({
   lanes,
@@ -109,7 +161,7 @@ function Lane({
   );
 }
 
-function DeskRow({ item }: { item: DeskItem }) {
+function DeskRow({ item, focusChannel = "" }: { item: DeskItem; focusChannel?: string }) {
   const [open, setOpen] = useState(false);
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +171,15 @@ function DeskRow({ item }: { item: DeskItem }) {
   const when = item.postedAt || item.scheduledAt;
   const channels = item.platforms.map((platform) => channelLabel(platform));
   const gate =
-    item.lane === "cleared" ? "Grok can post" : item.lane === "out" ? "Going out" : "Waiting on you";
+    item.lane === "cleared"
+      ? "Grok can post"
+      : item.lane === "out"
+        ? "Going out"
+        : item.lane === "live"
+          ? "Posted"
+          : item.lane === "agent"
+            ? "With the agent"
+            : "Waiting on you";
 
   function run(task: () => Promise<void>) {
     setError(null);
@@ -169,9 +229,7 @@ function DeskRow({ item }: { item: DeskItem }) {
               {when ? `${formatNyDate(when)} · ${formatNyTime(when)}` : "No time yet"}
             </span>
             <span className="tabular-nums">
-              {item.views
-                ? `${formatCount(item.views.total)} views${item.views.up != null ? ` · up ${formatCount(item.views.up)}` : ""}`
-                : "No views yet"}
+              {focusedViews(item, focusChannel)}
             </span>
             {item.ideas[0] ? (
               <a href={item.ideas[0].href} target="_blank" rel="noreferrer" className="text-primary hover:underline">
@@ -204,9 +262,11 @@ function DeskRow({ item }: { item: DeskItem }) {
                 Hold
               </Button>
             ) : null}
-            <Button size="sm" variant="outline" disabled={pending} onClick={() => setOpen((value) => !value)}>
-              {open ? "Close editor" : "Adjust copy"}
-            </Button>
+            {item.lane === "live" ? null : (
+              <Button size="sm" variant="outline" disabled={pending} onClick={() => setOpen((value) => !value)}>
+                {open ? "Close editor" : "Adjust copy"}
+              </Button>
+            )}
             {item.lane === "cleared" && item.suggestedTime ? (
               <ScheduleInBuffer
                 id={item.id}
@@ -263,6 +323,16 @@ function DeskRow({ item }: { item: DeskItem }) {
       ) : null}
     </article>
   );
+}
+
+function focusedViews(item: DeskItem, focusChannel: string) {
+  if (!item.views) return "No views yet";
+  const match = focusChannel
+    ? item.views.channels.find((channel) => channelKey(channel.channel) === focusChannel)
+    : null;
+  const total = match ? match.views : item.views.total;
+  const up = match ? "" : item.views.up != null ? ` · up ${formatCount(item.views.up)}` : "";
+  return `${formatCount(total)} views${up}`;
 }
 
 function Thumb({ src }: { src: string | null }) {

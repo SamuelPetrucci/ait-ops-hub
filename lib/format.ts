@@ -77,6 +77,17 @@ export function formatCount(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(value);
 }
 
+export function nyDateKey(value: string | null | undefined) {
+  if (!value) return "";
+  const date = nyDate(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+}
+
+export function channelKey(value: string | null | undefined) {
+  return channelLabel(value).toLowerCase().replace(/\s+/g, "-");
+}
+
 export function channelLabel(value: string | null | undefined) {
   const raw = (value || "").trim();
   if (!raw) return "Channel";

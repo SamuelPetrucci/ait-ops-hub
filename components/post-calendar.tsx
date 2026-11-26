@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { addDays, formatWhen, labelize, nyToday } from "@/lib/format";
+import { addDays, formatWhen, labelize, nyDateKey, nyToday } from "@/lib/format";
 
 export type CalendarItem = {
   id: string;
@@ -33,12 +33,14 @@ export function PostCalendar({
   query = {},
   source = "hub",
   configured = true,
+  selectedDay = "",
 }: {
   items: CalendarItem[];
   month?: string;
   query?: Record<string, string>;
   source?: "buffer" | "hub";
   configured?: boolean;
+  selectedDay?: string;
 }) {
   const today = nyToday();
   const focus = parseMonth(month) || today.slice(0, 7);
@@ -53,8 +55,8 @@ export function PostCalendar({
 
   const byDay = new Map<string, DayEvent[]>();
   for (const item of items) {
-    const postedKey = item.posted_at ? nyDateKey(item.posted_at) : null;
-    const scheduledKey = item.scheduled_at ? nyDateKey(item.scheduled_at) : null;
+    const postedKey = nyDateKey(item.posted_at);
+    const scheduledKey = nyDateKey(item.scheduled_at);
     const href = item.content_queue_id
       ? `/content/${item.content_queue_id}`
       : item.content_id
@@ -129,19 +131,17 @@ export function PostCalendar({
           <p className="text-sm text-ink-soft">
             {!configured
               ? "Add BUFFER_API_KEY to load the live Buffer queue."
-              : `${monthEvents.filter((event) => event.kind === "posted").length} posted · ${
-                  monthEvents.filter((event) => event.kind === "scheduled").length
-                } scheduled in Buffer`}
+              : "Pick a day, then a channel, to see that slice of the queue."}
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <MonthLink href={contentHref({ ...query, month: prev })} label="Previous month">
+          <MonthLink href={contentHref({ ...query, month: prev, day: "", channel: "" })} label="Previous month">
             ←
           </MonthLink>
-          <MonthLink href={contentHref({ ...query, month: today.slice(0, 7) })} label="This month">
+          <MonthLink href={contentHref({ ...query, month: today.slice(0, 7), day: "", channel: "" })} label="This month">
             Today
           </MonthLink>
-          <MonthLink href={contentHref({ ...query, month: next })} label="Next month">
+          <MonthLink href={contentHref({ ...query, month: next, day: "", channel: "" })} label="Next month">
             →
           </MonthLink>
         </div>
@@ -160,23 +160,38 @@ export function PostCalendar({
           const inMonth = day.startsWith(focus);
           const events = byDay.get(day) || [];
           const isToday = day === today;
+          const selected = day === selectedDay;
           return (
             <div
               key={day}
               className={`min-h-20 rounded-2xl p-1.5 ring-1 md:min-h-24 ${
-                inMonth ? "bg-white/50 ring-ink/8" : "bg-transparent ring-transparent opacity-40"
-              } ${isToday ? "ring-signal/50" : ""}`}
+                selected
+                  ? "bg-ink text-paper ring-ink"
+                  : inMonth
+                    ? "bg-white/50 ring-ink/8"
+                    : "bg-transparent ring-transparent opacity-40"
+              } ${isToday && !selected ? "ring-signal/50" : ""}`}
             >
               <div className="mb-1 flex items-center justify-between px-0.5">
-                <span
+                <Link
+                  href={contentHref({
+                    ...query,
+                    month: day.slice(0, 7),
+                    day: selected ? "" : day,
+                    channel: selected ? "" : query.channel || "",
+                  })}
+                  aria-current={selected ? "date" : undefined}
+                  aria-label={`${selected ? "Clear" : "Select"} ${day}`}
                   className={`text-xs tabular-nums ${
-                    isToday
-                      ? "rounded-full bg-signal px-1.5 py-0.5 font-medium text-paper"
-                      : "text-ink-soft"
+                    selected
+                      ? "rounded-full bg-paper px-1.5 py-0.5 font-medium text-ink"
+                      : isToday
+                        ? "rounded-full bg-signal px-1.5 py-0.5 font-medium text-paper"
+                        : "text-ink-soft hover:text-ink"
                   }`}
                 >
                   {Number(day.slice(8))}
-                </span>
+                </Link>
                 {events.length > 0 ? (
                   <span className="text-[10px] tabular-nums text-ink-soft">{events.length}</span>
                 ) : null}
@@ -279,10 +294,6 @@ function pushEvent(map: Map<string, DayEvent[]>, day: string, event: DayEvent) {
   list.push(event);
   list.sort((a, b) => a.when.localeCompare(b.when));
   map.set(day, list);
-}
-
-function nyDateKey(iso: string) {
-  return new Date(iso).toLocaleDateString("en-CA", { timeZone: "America/New_York" });
 }
 
 function parseMonth(value?: string) {
